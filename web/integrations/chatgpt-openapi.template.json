@@ -1,0 +1,281 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "拾念 GitHub 资料库",
+    "version": "1.0.0",
+    "description": "个人游戏创意资料库。仅修改 idea-vault.json 与 ideas/ 内协议文件；每次基于最新 HEAD 更新，禁止 force。"
+  },
+  "servers": [
+    {
+      "url": "https://api.github.com/repos/YOUR-OWNER/YOUR-REPO"
+    }
+  ],
+  "paths": {
+    "/git/ref/heads/VAULT_BRANCH": {
+      "get": {
+        "operationId": "getVaultHead",
+        "summary": "读取资料分支当前 HEAD",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/git/commits/{commit_sha}": {
+      "get": {
+        "operationId": "getVaultCommit",
+        "summary": "读取固定提交及其 tree SHA",
+        "parameters": [
+          {
+            "name": "commit_sha",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/git/trees/{tree_sha}": {
+      "get": {
+        "operationId": "getVaultTree",
+        "summary": "列出固定版本的主题与模块路径；truncated 为 true 时停止写入",
+        "parameters": [
+          {
+            "name": "tree_sha",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            }
+          },
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/git/blobs/{file_sha}": {
+      "get": {
+        "operationId": "getVaultBlob",
+        "summary": "读取单个资料文件；使用 Code Interpreter 对 base64 内容做 UTF-8 解码",
+        "parameters": [
+          {
+            "name": "file_sha",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/git/trees": {
+      "post": {
+        "operationId": "createVaultTree",
+        "summary": "准备一批主题/模块变更，必须保留原 base_tree",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base_tree": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}$"
+                  },
+                  "tree": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "pattern": "^(idea-vault\\.json|ideas/[a-zA-Z0-9_-]{1,80}/(topic\\.json|modules/[a-zA-Z0-9_-]{1,80}\\.md))$"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "100644"
+                          ]
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "blob"
+                          ]
+                        },
+                        "content": {
+                          "type": "string",
+                          "description": "完整 UTF-8 文件内容。添加/更新时提供，与 sha 互斥。"
+                        },
+                        "sha": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "删除时传 null，不传 content；不能删除不存在的文件。"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "mode",
+                        "type"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "base_tree",
+                  "tree"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "201": {
+            "description": "对象已创建；更新分支后才可见"
+          },
+          "422": {
+            "description": "版本冲突或无效请求；重新读取，禁止强制推送"
+          }
+        }
+      }
+    },
+    "/git/commits": {
+      "post": {
+        "operationId": "createVaultCommit",
+        "summary": "创建资料提交，父提交必须为刚读取的 HEAD",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "tree": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}$"
+                  },
+                  "parents": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{40}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 1
+                  }
+                },
+                "required": [
+                  "message",
+                  "tree",
+                  "parents"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "201": {
+            "description": "对象已创建；更新分支后才可见"
+          },
+          "422": {
+            "description": "版本冲突或无效请求；重新读取，禁止强制推送"
+          }
+        }
+      }
+    },
+    "/git/refs/heads/VAULT_BRANCH": {
+      "patch": {
+        "operationId": "updateVaultHead",
+        "summary": "发布新提交，禁止强制覆盖；这一步成功才算同步完成",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}$"
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  }
+                },
+                "required": [
+                  "sha",
+                  "force"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "201": {
+            "description": "对象已创建；更新分支后才可见"
+          },
+          "422": {
+            "description": "版本冲突或无效请求；重新读取，禁止强制推送"
+          }
+        }
+      }
+    }
+  }
+}

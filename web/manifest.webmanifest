@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "拾念 · 游戏创意档案",
+  "short_name": "拾念",
+  "description": "让每一次灵感，都有下一次。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f4ed",
+  "theme_color": "#203f35",
+  "icons": [
+    {"src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
