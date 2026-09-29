@@ -4,7 +4,11 @@
 
 一套桌面 / 手机共用 PWA，GitHub 保存资料，不需要自建服务器、数据库或模型 API Key。
 
-**交付状态：代码与接入配置已编写；遵照项目要求，未运行测试、浏览器验收或真实 GitHub/GPT 联调。尚未部署到 GitHub。**
+**应用已发布：[打开拾念 · Idea Grove](https://lcy199608.github.io/idea-grove/)。遵照项目要求，未运行测试、浏览器功能验收或真实 GPT 联调；Pages 发布工作流已成功。**
+
+应用源码：[lcy199608/idea-grove](https://github.com/lcy199608/idea-grove)。独立私有资料仓库已初始化，首次在「同步设置」填写所有者 `lcy199608`、仓库 `game-ideas`、分支 `main`，并自行填写有 Contents 读写权限的令牌。
+
+若此前在 localhost 保存了内容，请先在旧页面「备份与导入」中导出，再到正式网址导入。不同网址的本地资料和登录不会自动迁移。
 
 ## 在本机打开
 
@@ -65,7 +69,7 @@ python3 scripts/serve.py
 
 若默认分支不是 main，需要同步修改工作流的触发分支。应用使用相对地址，同时适配 `username.github.io/` 与 `username.github.io/project/`。应用每次发布修改缓存资源时，应提升 web/sw.js 的 CACHE 版本；关闭所有旧窗口再打开应用以启用新版本。
 
-仓库首次创建、发布、GitHub 授权与 GPT 配置需要你的账号操作。项目当前没有绑定任何账号、仓库地址或令牌。
+本项目已上传至 `lcy199608/idea-grove` 并启用 Pages；私有资料仓库 `lcy199608/game-ideas` 已添加初始 README。浏览器仍需首次配置仓库和令牌；私人 GPT 仍需按接入文档配置。源码和发布文件不包含任何登录令牌。
 
 ## 连接 AI
 

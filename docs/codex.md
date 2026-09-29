@@ -46,4 +46,4 @@ python3 /技能目录/scripts/vault.py --repo /资料仓库 context --topic 主�
 
 只有 push 成功后，GitHub 才有新版本。应用点击「拉取」后读取新版本；如果本机同时编辑了同一主题，则进入冲突选择。
 
-这里没有自动安装到你的全局技能目录，也没有克隆或推送任何资料仓库；需要先指定真实仓库并完成认证。
+Skill 尚未自动安装到全局技能目录。资料仓库 `https://github.com/lcy199608/game-ideas.git` 已初始化；在需要使用 Codex 的电脑克隆它，并向 Codex 指定实际本地路径后使用。
