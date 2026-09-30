@@ -93,6 +93,7 @@ export function parseFiles(files) {
       if (!item || !safeID(item.id) || !isImagePath(item.path) || item.path !== `ideas/${topic.id}/images/${module.id}/${item.id}.${item.path.split('.').pop()}` || referenced.has(item.path)) throw new Error('图片附件标识、路径或归属不正确。');
       textField(item.name, '图片名称', 200);
       textField(item.caption, '图片说明', 4000);
+      if (item.inline !== undefined && typeof item.inline !== 'boolean') throw new Error('图片的正文展示标记必须是布尔值。');
       if (item.mimeType !== imageMime(item.path) || !Number.isInteger(item.size) || imageSizes.get(item.path) !== item.size || !['width', 'height'].every(key => Number.isInteger(item[key]) && item[key] > 0 && item[key] <= MAX_IMAGE_EDGE)) throw new Error(`参考图缺失或元信息无效：${item.name}`);
       referenced.add(item.path);
     }

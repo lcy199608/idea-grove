@@ -2,6 +2,7 @@ import { TYPES, STATUSES, id, now, clone, marker, upgradeImages, newTopic, newMo
 import { get, setRecords, emptyWorkspace, workspaceKey, getCredential, saveConnection, clearCredentials } from './storage.js';
 import { GitHub } from './github.js';
 import { isImagePath, imageBlob, imageFileName, prepareImage, formatSize, base64Size, MAX_ATTACHMENTS, MAX_TOTAL_IMAGE_BYTES } from './images.js';
+import { imageMarkdown, renderMarkdown, removeImageReferences } from './markdown.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -124,9 +125,12 @@ function topicView(topic) {
 }
 function modulesView(topic) {
   const filters = [['all', '全部'], ['confirmed', '已确认'], ['exploring', '待探索'], ['rejected', '已放弃']];
-  const filtered = topic.modules.filter(module => (statusFilter === 'all' || module.status === statusFilter) && `${module.title} ${module.body} ${module.reason} ${TYPES[module.type]} ${(module.attachments || []).map(item => item.name + ' ' + item.caption).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = topic.modules.filter(module => (statusFilter === 'all' || module.status === statusFilter) && `${module.title} ${module.body} ${module.reason} ${TYPES[module.type]} ${(module.attachments || []).map(item => item.name + ' ' + item.caption).join(' ')}`.toLowerCase().includes(query.toLowerCase())).map(module => {
+    const used = renderMarkdown(module.body, module.attachments || []).used;
+    return { ...module, visibleImages: (module.attachments || []).filter(item => !item.inline || used.has(item.id)) };
+  });
   return `<div class="module-toolbar"><div class="filter-row">${filters.map(([value, label]) => `<button class="filter ${statusFilter === value ? 'active' : ''}" data-action="filter" data-id="${value}" aria-pressed="${statusFilter === value}">${label}</button>`).join('')}</div><div class="module-tools"><label class="search">${icon('search')}<input id="module-search" type="search" placeholder="搜索想法…" value="${esc(query)}" aria-label="搜索模块"></label><button class="button primary" data-action="new-module">${icon('plus')} 新增模块</button></div></div>
-    <div class="module-grid">${filtered.map(module => `<article class="module-card ${module.status}"><div class="card-meta"><span class="module-kind">${icon(module.type === 'tech' ? 'settings' : module.type === 'art' ? 'leaf' : module.type === 'question' ? 'spark' : 'grid')}${esc(TYPES[module.type])}</span>${badge(module.status)}</div><button class="card-title" data-action="view-module" data-id="${esc(module.id)}"><h2>${esc(module.title)}</h2></button>${module.attachments?.length ? `<button class="card-image" data-action="view-module" data-id="${esc(module.id)}" aria-label="查看参考图"><img data-image-path="${esc(module.attachments[0].path)}" alt="${esc(module.attachments[0].caption || module.attachments[0].name)}" loading="lazy"><span>${module.attachments.length} 张参考图</span></button>` : ''}<p class="card-excerpt">${esc(module.body.replace(/[#*\x60>]/g, '').slice(0, 200) || '还没有正文，继续补充这个想法。')}</p>${module.reason ? `<div class="card-reason"><span>为什么保留</span>${esc(module.reason.slice(0, 100))}</div>` : ''}<div class="card-bottom"><span>${date(module.updatedAt)}</span><button class="icon-button" data-action="edit-module" data-id="${esc(module.id)}" aria-label="编辑${esc(module.title)}">${icon('edit')}</button></div></article>`).join('')}${!query && statusFilter === 'all' ? `<button class="add-card" data-action="new-module"><span>${icon('plus')}</span><strong>留住下一个想法</strong><small>玩法、技术、体验，或者一个好问题</small></button>` : ''}</div>${!filtered.length && (query || statusFilter !== 'all') ? '<div class="empty-filter">没有找到对应模块。试试其他关键词或状态。</div>' : ''}`;
+    <div class="module-grid">${filtered.map(module => `<article class="module-card ${module.status}"><div class="card-meta"><span class="module-kind">${icon(module.type === 'tech' ? 'settings' : module.type === 'art' ? 'leaf' : module.type === 'question' ? 'spark' : 'grid')}${esc(TYPES[module.type])}</span>${badge(module.status)}</div><button class="card-title" data-action="view-module" data-id="${esc(module.id)}"><h2>${esc(module.title)}</h2></button>${module.visibleImages.length ? `<button class="card-image" data-action="view-module" data-id="${esc(module.id)}" aria-label="查看参考图"><img data-image-path="${esc(module.visibleImages[0].path)}" alt="${esc(module.visibleImages[0].caption || module.visibleImages[0].name)}" loading="lazy"><span>${module.visibleImages.length} 张参考图</span></button>` : ''}<p class="card-excerpt">${esc(module.body.replace(/[#*\x60>]/g, '').slice(0, 200) || '还没有正文，继续补充这个想法。')}</p>${module.reason ? `<div class="card-reason"><span>为什么保留</span>${esc(module.reason.slice(0, 100))}</div>` : ''}<div class="card-bottom"><span>${date(module.updatedAt)}</span><button class="icon-button" data-action="edit-module" data-id="${esc(module.id)}" aria-label="编辑${esc(module.title)}">${icon('edit')}</button></div></article>`).join('')}${!query && statusFilter === 'all' ? `<button class="add-card" data-action="new-module"><span>${icon('plus')}</span><strong>留住下一个想法</strong><small>玩法、技术、体验，或者一个好问题</small></button>` : ''}</div>${!filtered.length && (query || statusFilter !== 'all') ? '<div class="empty-filter">没有找到对应模块。试试其他关键词或状态。</div>' : ''}`;
 }
 function overviewView(topic) {
   return `<div class="overview-layout"><article class="paper"><div class="paper-label">PROJECT BRIEF</div><h2>${esc(topic.title)}</h2><p>${esc(topic.description || '暂无项目描述。')}</p><h3>当前共识</h3>${topic.modules.filter(module => module.status === 'confirmed').map(module => `<button class="overview-item" data-action="view-module" data-id="${esc(module.id)}">${icon('check')}<span>${esc(module.title)}<small>${esc(TYPES[module.type])}</small></span>${icon('arrow')}</button>`).join('') || '<p class="muted">还没有确认的模块。讨论成熟后，将模块标记为「已确认」。</p>'}<h3>下一步可以讨论</h3>${topic.modules.filter(module => module.status === 'exploring').map(module => `<button class="overview-item" data-action="view-module" data-id="${esc(module.id)}">${icon('spark')}<span>${esc(module.title)}<small>${esc(TYPES[module.type])}</small></span>${icon('arrow')}</button>`).join('') || '<p class="muted">暂时没有待探索内容。</p>'}</article><aside class="context-note">${icon('book')}<h3>下一场对话，<br>从这里开始。</h3><p>接续上下文会汇集已确认模块和可选的待探索想法，自动排除废案。</p><button class="button primary" data-action="context">生成上下文 ${icon('arrow')}</button></aside></div>`;
@@ -195,9 +199,47 @@ async function editModule(module) {
   let attachments = clone(value.attachments || []);
   const images = Object.fromEntries(attachments.map(item => [item.path, savedImages?.[item.path] ?? saved?.images?.[item.path] ?? workspace.files[item.path]]));
   let releaseImages = () => {}, imageBusy = false, imageRevision = 0, savedImageRevision = -1;
-  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><label class="field">具体内容 <span class="optional">支持 Markdown</span><textarea class="body-editor" name="body" rows="9" maxlength="200000" placeholder="玩法是什么？有哪些约束？哪些细节值得保留？">${esc(value.body)}</textarea></label><section class="attachment-editor" aria-label="参考图片"><div class="attachment-heading"><strong>参考图片</strong><span id="image-count"></span></div><div class="image-drop" tabindex="0" id="image-drop"><button type="button" class="button outline" id="choose-images">${icon('plus')} 添加参考图</button><input id="image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple hidden><p>手机选图，电脑可拖入或粘贴图片</p><small>每模块最多 10 张；单张原文件 ≤ 20 MB。自动压缩至最长边 2560 像素、≤ 1.5 MB，保留透明背景。GIF 保存静态画面，原图请自行留存。</small></div><p id="image-status" class="helper" role="status" aria-live="polite"></p><div id="attachment-list" class="attachment-grid"></div></section><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
+  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><section class="body-composer" aria-label="图文正文"><div class="body-toolbar"><label for="body-editor">正文</label><button type="button" class="button outline" id="choose-images">${icon('plus')} 插入图片</button><input id="image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple hidden></div><p class="helper">在正文光标处粘贴图片，或先定位光标再拖入、选择图片。可移动图片引用调整位置。</p><label class="field"><span class="sr-only">Markdown 正文</span><textarea id="body-editor" class="body-editor" name="body" rows="11" maxlength="200000" placeholder="写下想法，在需要的位置直接粘贴图片…">${esc(value.body)}</textarea></label><p id="image-status" class="helper" role="status" aria-live="polite"></p><details class="body-preview-wrap" id="body-preview-wrap" open><summary>正文预览</summary><div id="body-preview" class="markdown body-preview"></div></details></section><details class="image-library"><summary>管理图片 <span id="image-count"></span></summary><p class="helper">已有图片可再次插入正文。删除正文中的引用只移除展示位置；点击“删除图片与引用”才会一并删除文件。每模块最多 10 张，原文件 ≤ 20 MB，自动压缩至最长边 2560 像素、≤ 1.5 MB。GIF 保存静态画面。</p><div id="attachment-list" class="attachment-grid"></div></details><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
   const form = $('form', dialog), list = $('#attachment-list', form);
-  const collect = () => ({ ...value, ...Object.fromEntries(new FormData(form)), attachments: clone(attachments), updatedAt: now() });
+  const editor = $('#body-editor', form), preview = $('#body-preview', form);
+  let selection = { start: editor.value.length, end: editor.value.length }, previewTimer;
+  const previewURLs = new Map();
+  const rememberSelection = () => { selection = { start: editor.selectionStart, end: editor.selectionEnd }; };
+  for (const eventName of ['input', 'select', 'click', 'keyup', 'blur']) editor.addEventListener(eventName, rememberSelection);
+  const drawPreview = () => {
+    preview.innerHTML = renderMarkdown(editor.value, attachments).html || '<p class="muted">文字与图片会按正文顺序显示在这里。</p>';
+    preview.querySelectorAll('img[data-image-path]').forEach(img => {
+      const path = img.dataset.imagePath;
+      if (!images[path]) return;
+      if (!previewURLs.has(path)) previewURLs.set(path, URL.createObjectURL(imageBlob(path, images[path])));
+      img.src = previewURLs.get(path);
+    });
+    for (const [path, url] of previewURLs) if (!images[path]) { URL.revokeObjectURL(url); previewURLs.delete(path); }
+  };
+  const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(drawPreview, 150); };
+  const insertImage = item => {
+    const start = Math.min(selection.start, editor.value.length), end = Math.min(selection.end, editor.value.length);
+    const before = editor.value.slice(0, start), after = editor.value.slice(end);
+    const prefix = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
+    const suffix = after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+    const content = prefix + imageMarkdown(item) + suffix;
+    if (editor.value.length - (end - start) + content.length > editor.maxLength) throw new Error('正文已接近长度限制，请精简后再插入图片。');
+    editor.setRangeText(content, start, end, 'end');
+    item.inline = true;
+    rememberSelection();
+    $('#body-preview-wrap', form).open = true;
+    drawPreview();
+  };
+  preview.addEventListener('click', event => {
+    const button = event.target.closest('[data-preview]');
+    const item = button && attachments.find(item => item.id === button.dataset.preview);
+    if (item) previewImage(item, images[item.path]);
+  });
+  const collect = () => {
+    const used = renderMarkdown(editor.value, attachments).used;
+    for (const item of attachments) if (used.has(item.id)) item.inline = true;
+    return { ...value, ...Object.fromEntries(new FormData(form)), attachments: clone(attachments), updatedAt: now() };
+  };
   const persistDraft = async () => {
     currentDraft = { module: collect(), at: now() };
     const revision = imageRevision;
@@ -212,30 +254,39 @@ async function editModule(module) {
   const drawImages = () => {
     releaseImages();
     $('#image-count', form).textContent = `${attachments.length} / ${MAX_ATTACHMENTS}`;
-    list.innerHTML = attachments.map(item => `<article class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><div class="attachment-meta"><span title="${esc(item.name)}">${esc(item.name)}</span><small>${item.width} × ${item.height} · ${formatSize(item.size)}</small></div><label class="field">参考说明<textarea data-caption="${esc(item.id)}" rows="2" maxlength="4000" placeholder="例如：参考配色，保留轮廓，不采用人物造型">${esc(item.caption)}</textarea></label><button type="button" class="text-button danger" data-remove="${esc(item.id)}">${icon('trash')} 移除图片</button></article>`).join('');
+    list.innerHTML = attachments.map(item => `<article class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><div class="attachment-meta"><span title="${esc(item.name)}">${esc(item.name)}</span><small>${item.width} × ${item.height} · ${formatSize(item.size)}</small></div><label class="field">参考说明<textarea data-caption="${esc(item.id)}" rows="2" maxlength="4000" placeholder="例如：参考配色，保留轮廓，不采用人物造型">${esc(item.caption)}</textarea></label><div class="image-library-actions"><button type="button" class="button outline" data-insert="${esc(item.id)}">插入正文</button><button type="button" class="text-button danger" data-remove="${esc(item.id)}">${icon('trash')} 删除图片与引用</button></div></article>`).join('');
     releaseImages = mountImages(list, images);
   };
-  modalCleanup = () => releaseImages();
-  drawImages();
+  modalCleanup = () => {
+    releaseImages(); clearTimeout(previewTimer);
+    for (const url of previewURLs.values()) URL.revokeObjectURL(url);
+  };
+  drawImages(); drawPreview();
   form.addEventListener('input', event => {
     if (event.target.dataset.caption) {
       const item = attachments.find(item => item.id === event.target.dataset.caption);
       if (item) item.caption = event.target.value;
     }
     $('#draft-state', form).textContent = '正在保存草稿…';
+    schedulePreview();
     persistDraft();
   });
   list.addEventListener('click', async event => {
     const button = event.target.closest('button');
     if (!button || imageBusy) return;
-    const item = attachments.find(item => item.id === (button.dataset.preview || button.dataset.remove));
+    const item = attachments.find(item => item.id === (button.dataset.preview || button.dataset.remove || button.dataset.insert));
     if (!item) return;
     if (button.dataset.preview) previewImage(item, images[item.path]);
-    else {
+    else if (button.dataset.insert) {
+      try { insertImage(item); editor.focus(); await persistDraft(); }
+      catch (error) { $('#image-status', form).textContent = error.message; }
+    } else {
+      editor.value = removeImageReferences(editor.value, item);
+      selection = { start: Math.min(selection.start, editor.value.length), end: Math.min(selection.end, editor.value.length) };
       attachments = attachments.filter(candidate => candidate.id !== item.id);
       delete images[item.path];
       imageRevision++;
-      drawImages(); await persistDraft();
+      drawImages(); drawPreview(); await persistDraft();
     }
   });
   const addImages = async candidates => {
@@ -252,23 +303,26 @@ async function editModule(module) {
           const result = await prepareImage(file, topic.id, value.id);
           const otherBytes = Object.entries(workspace.files).filter(([path]) => isImagePath(path) && !path.startsWith(`ideas/${topic.id}/images/${value.id}/`)).reduce((total, [, bytes]) => total + base64Size(bytes), 0);
           if (otherBytes + attachments.reduce((total, item) => total + item.size, 0) + result.attachment.size > MAX_TOTAL_IMAGE_BYTES) throw new Error('当前资料库图片总量将超过 40 MB，请删除不需要的参考图或拆分资料库。');
-          attachments.push(result.attachment); images[result.attachment.path] = result.content; added++;
+          // Build the body insertion before saving either the reference or the binary draft.
+          attachments.push(result.attachment); images[result.attachment.path] = result.content;
+          try { insertImage(result.attachment); }
+          catch (error) { attachments.pop(); delete images[result.attachment.path]; throw error; }
+          added++;
           imageRevision++;
           await persistDraft();
         } catch (error) { errors.push(`${file.name || '图片'}：${error.message}`); }
       }
       drawImages();
-      status.textContent = [`已添加 ${added} 张参考图。`, ...errors].join(' ');
+      status.textContent = [`已在正文插入 ${added} 张图片。`, ...errors].join(' ');
     } catch (error) { status.textContent = error.message; }
-    finally { imageBusy = false; modalBusy = false; form.inert = false; submit.disabled = false; }
+    finally { imageBusy = false; modalBusy = false; form.inert = false; submit.disabled = false; if (added) { editor.focus(); editor.setSelectionRange(selection.start, selection.end); } }
   };
-  const input = $('#image-input', form), drop = $('#image-drop', form);
+  const input = $('#image-input', form), drop = $('.body-composer', form);
   $('#choose-images', form).onclick = () => input.click();
   input.onchange = () => { const files = [...input.files]; input.value = ''; addImages(files); };
-  drop.onkeydown = event => { if (event.target === drop && ['Enter', ' '].includes(event.key)) { event.preventDefault(); input.click(); } };
   form.addEventListener('paste', event => {
     const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
-    if (files.length) { event.preventDefault(); addImages(files); }
+    if (files.length) { event.preventDefault(); if (event.target === editor) rememberSelection(); addImages(files); }
   });
   form.addEventListener('dragover', event => {
     if ([...(event.dataTransfer?.types || [])].includes('Files')) { event.preventDefault(); drop.classList.add('drag-over'); }
@@ -299,25 +353,11 @@ async function editModule(module) {
     dialog.close(); render(); toast('模块与参考图已保存。上传后，其他设备才能读取。');
   });
 }
-// A deliberately small Markdown subset, escaped before formatting; no raw HTML or external embeds.
-function markdown(text) {
-  let inCode = false;
-  return String(text).split('\n').map(line => {
-    if (line.startsWith('```')) { inCode = !inCode; return inCode ? '<pre><code>' : '</code></pre>'; }
-    const safe = esc(line);
-    if (inCode) return `${safe}\n`;
-    const inline = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
-    if (/^### /.test(line)) return `<h4>${inline.slice(4)}</h4>`;
-    if (/^## /.test(line)) return `<h3>${inline.slice(3)}</h3>`;
-    if (/^# /.test(line)) return `<h2>${inline.slice(2)}</h2>`;
-    if (/^[-*] /.test(line)) return `<div class="md-bullet">${inline.slice(2)}</div>`;
-    if (/^> /.test(line)) return `<blockquote>${inline.slice(5)}</blockquote>`;
-    return line.trim() ? `<p>${inline}</p>` : '<div class="md-space"></div>';
-  }).join('') + (inCode ? '</code></pre>' : '');
-}
 function viewModule(module) {
   const attachments = module.attachments || [];
-  showDialog(module.title, `${TYPES[module.type]} · 更新于 ${date(module.updatedAt)}`, `<div class="module-detail">${badge(module.status)}<div class="markdown">${markdown(module.body || '暂无正文。')}</div>${attachments.length ? `<section class="attachment-section"><h3>参考图片 <small>${attachments.length} 张</small></h3><div class="attachment-grid">${attachments.map(item => `<figure class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><figcaption><strong>${esc(item.name)}</strong>${item.caption ? `<p>${esc(item.caption)}</p>` : ''}<small>${item.width} × ${item.height} · ${formatSize(item.size)} · 点击放大或下载</small></figcaption></figure>`).join('')}</div></section>` : ''}${module.reason ? `<div class="reason-panel"><strong>决策理由</strong><p>${esc(module.reason)}</p></div>` : ''}${module.source ? `<p class="source-line">来源：${esc(module.source)}</p>` : ''}<div class="dialog-actions spread"><button id="remove-module" class="text-button danger">${icon('trash')} 删除模块</button><button id="edit-module" class="button primary">${icon('edit')} 编辑模块</button></div></div>`, true);
+  const body = renderMarkdown(module.body || '暂无正文。', attachments);
+  const unplaced = attachments.filter(item => !item.inline && !body.used.has(item.id));
+  showDialog(module.title, `${TYPES[module.type]} · 更新于 ${date(module.updatedAt)}`, `<div class="module-detail">${badge(module.status)}<div class="markdown">${body.html}</div>${unplaced.length ? `<section class="attachment-section"><h3>其他参考图片 <small>${unplaced.length} 张</small></h3><div class="attachment-grid">${unplaced.map(item => `<figure class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><figcaption><strong>${esc(item.name)}</strong>${item.caption ? `<p>${esc(item.caption)}</p>` : ''}<small>${item.width} × ${item.height} · ${formatSize(item.size)} · 点击放大或下载</small></figcaption></figure>`).join('')}</div></section>` : ''}${module.reason ? `<div class="reason-panel"><strong>决策理由</strong><p>${esc(module.reason)}</p></div>` : ''}${module.source ? `<p class="source-line">来源：${esc(module.source)}</p>` : ''}<div class="dialog-actions spread"><button id="remove-module" class="text-button danger">${icon('trash')} 删除模块</button><button id="edit-module" class="button primary">${icon('edit')} 编辑模块</button></div></div>`, true);
   modalCleanup = mountImages(dialog, workspace.files);
   dialog.querySelectorAll('[data-preview]').forEach(button => button.onclick = () => {
     const item = attachments.find(item => item.id === button.dataset.preview);

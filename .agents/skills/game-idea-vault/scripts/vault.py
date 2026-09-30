@@ -115,6 +115,8 @@ def validate_module(value):
         identifier(item["id"])
         text_limit(item["name"], 200, "图片名称")
         text_limit(item["caption"], 4000, "图片说明")
+        if "inline" in item and type(item["inline"]) is not bool:
+            raise ValueError("图片正文展示标记必须是布尔值。")
         if not is_image(item["path"]) or item["mimeType"] != image_mime(item["path"]):
             raise ValueError("图片路径或格式错误。")
         if any(type(item.get(key)) is not int or not 1 <= item[key] <= 2560 for key in ("width", "height")):
