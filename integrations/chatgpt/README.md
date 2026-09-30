@@ -1,10 +1,36 @@
-# 私人 GPT：直接读写 GitHub
+# ChatGPT 接入拾念
+
+## 推荐：GitHub 插件 + 拾念 Skill
+
+已有 GitHub 插件时，可以使用 `.agents/skills/game-idea-vault/` 中的规则，无需 GPT Actions，也无需服务器。默认资料库通过技能内 `references/repository.json` 固定为 `lcy199608/game-ideas`、分支 `main`；不含令牌。
+
+- 当前 Mac 已安装本地 Skill，可以在 Codex / 本地技能可用的界面选择「拾念」。
+- 网页和手机需要一次云端插件创建；本地安装不会自动出现在手机。
+- 在 ChatGPT 的 @ 菜单查找 **Plugin Creator**，附上本次生成的「拾念-ChatGPT插件说明.txt」或完整技能包，请它创建仅自己使用的「拾念」插件，包含已连接的 GitHub 应用和整理技能。说明文件已含默认仓库、工作流、资料格式和原子提交规则。
+- 只有创建完成、能选到 `@拾念` 并具备对应 GitHub 工具后，才能按配置直接读取和保存。若账号没有 Plugin Creator，则保留素材包，不能声称已经云端安装；桌面可继续使用本地 Skill。
+- 不把技能放入旧 GPT 的「知识」来冒充工具连接，不在聊天/文件中填写 GitHub 令牌。
+
+创建完成后的日常用语：
+
+> @拾念 打开我的创意库。
+>
+> @拾念 继续讨论回声森林，先不保存。
+>
+> 整理本次讨论，给我看拟保存内容。
+>
+> 保存第 1、3 项；第 2 项作为待探索；其余不保留。
+
+“整理”默认只预览；“保存”才写入，完成后返回提交链接。回到拾念点「拉取」。GitHub 插件写入能力及手机端体验需人工验收，本次未运行测试或修改资料库。
+
+官方参考：[构建技能](https://learn.chatgpt.com/docs/build-skills)、[创建插件](https://learn.chatgpt.com/docs/build-plugins)。
+
+## 可选：私人 GPT Actions
 
 这条路线使用 ChatGPT 的自定义 GPT Actions 直接调用 GitHub API，不需要自建 MCP 或中转服务器。
 
 **当前交付了指令、OpenAPI 模板及生成器，尚未进行真实账号联调。** 必须在你的账号内按人工验收清单确认 Actions 可用、认证成功、读取解码与写入链路成功。普通聊天不会自动获得此 GPT 的能力。
 
-如果官网 GPT 编辑器的「配置」页底部没有 Actions，不要继续寻找同一入口，也不要把 JSON 上传到「知识」代替连接。账号套餐名称本身不能确认接口可用；此时只能继续使用文字助手，GitHub 直连尚未启用。
+如果官网 GPT 编辑器的「配置」页底部没有 Actions，不要继续寻找同一入口，也不要把 JSON 上传到「知识」代替连接。账号套餐名称本身不能确认接口可用；这份私人 GPT 的 GitHub 直连尚未启用，可使用上面的 GitHub 插件 + Skill 路线。
 
 ## 1. 生成你自己的 Actions 配置
 
