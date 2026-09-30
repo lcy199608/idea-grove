@@ -2,7 +2,8 @@ import { TYPES, STATUSES, id, now, clone, marker, upgradeImages, newTopic, newMo
 import { get, setRecords, emptyWorkspace, workspaceKey, getCredential, saveConnection, clearCredentials } from './storage.js';
 import { GitHub } from './github.js';
 import { isImagePath, imageBlob, imageFileName, prepareImage, formatSize, base64Size, MAX_ATTACHMENTS, MAX_TOTAL_IMAGE_BYTES } from './images.js';
-import { imageMarkdown, renderMarkdown, removeImageReferences } from './markdown.js';
+import { renderMarkdown, removeImageReferences } from './markdown.js';
+import { createBodyEditor } from './body-editor.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -199,46 +200,21 @@ async function editModule(module) {
   let attachments = clone(value.attachments || []);
   const images = Object.fromEntries(attachments.map(item => [item.path, savedImages?.[item.path] ?? saved?.images?.[item.path] ?? workspace.files[item.path]]));
   let releaseImages = () => {}, imageBusy = false, imageRevision = 0, savedImageRevision = -1;
-  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><section class="body-composer" aria-label="图文正文"><div class="body-toolbar"><label for="body-editor">正文</label><button type="button" class="button outline" id="choose-images">${icon('plus')} 插入图片</button><input id="image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple hidden></div><p class="helper">在正文光标处粘贴图片，或先定位光标再拖入、选择图片。可移动图片引用调整位置。</p><label class="field"><span class="sr-only">Markdown 正文</span><textarea id="body-editor" class="body-editor" name="body" rows="11" maxlength="200000" placeholder="写下想法，在需要的位置直接粘贴图片…">${esc(value.body)}</textarea></label><p id="image-status" class="helper" role="status" aria-live="polite"></p><details class="body-preview-wrap" id="body-preview-wrap" open><summary>正文预览</summary><div id="body-preview" class="markdown body-preview"></div></details></section><details class="image-library"><summary>管理图片 <span id="image-count"></span></summary><p class="helper">已有图片可再次插入正文。删除正文中的引用只移除展示位置；点击“删除图片与引用”才会一并删除文件。每模块最多 10 张，原文件 ≤ 20 MB，自动压缩至最长边 2560 像素、≤ 1.5 MB。GIF 保存静态画面。</p><div id="attachment-list" class="attachment-grid"></div></details><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
+  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><section class="body-composer" aria-label="图文正文"><div class="body-toolbar"><span id="body-label">正文</span><div class="body-toolbar-actions"><button type="button" class="text-button" id="toggle-body-source" aria-pressed="false">Markdown 源码</button><button type="button" class="button outline" id="choose-images">${icon('plus')} 插入图片</button></div><input id="image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple hidden></div><p class="helper">在正文中直接粘贴图片，在图片前后继续写。也可先放好光标，再选择或拖入图片。</p><div id="body-editor" class="visual-body-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="body-label" data-placeholder="写下想法，在需要的位置直接粘贴图片…" spellcheck="true"></div><textarea id="body-source" class="body-editor body-source" rows="14" maxlength="200000" aria-label="Markdown 正文源码" hidden></textarea><p id="image-status" class="helper" role="status" aria-live="polite"></p></section><details class="image-library"><summary>管理图片 <span id="image-count"></span></summary><p class="helper">已有图片可再次插入正文。删除正文中的引用只移除展示位置；点击“删除图片与引用”才会一并删除文件。每模块最多 10 张，原文件 ≤ 20 MB，自动压缩至最长边 2560 像素、≤ 1.5 MB。GIF 保存静态画面。</p><div id="attachment-list" class="attachment-grid"></div></details><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
   const form = $('form', dialog), list = $('#attachment-list', form);
-  const editor = $('#body-editor', form), preview = $('#body-preview', form);
-  let selection = { start: editor.value.length, end: editor.value.length }, previewTimer;
-  const previewURLs = new Map();
-  const rememberSelection = () => { selection = { start: editor.selectionStart, end: editor.selectionEnd }; };
-  for (const eventName of ['input', 'select', 'click', 'keyup', 'blur']) editor.addEventListener(eventName, rememberSelection);
-  const drawPreview = () => {
-    preview.innerHTML = renderMarkdown(editor.value, attachments).html || '<p class="muted">文字与图片会按正文顺序显示在这里。</p>';
-    preview.querySelectorAll('img[data-image-path]').forEach(img => {
-      const path = img.dataset.imagePath;
-      if (!images[path]) return;
-      if (!previewURLs.has(path)) previewURLs.set(path, URL.createObjectURL(imageBlob(path, images[path])));
-      img.src = previewURLs.get(path);
-    });
-    for (const [path, url] of previewURLs) if (!images[path]) { URL.revokeObjectURL(url); previewURLs.delete(path); }
-  };
-  const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(drawPreview, 150); };
-  const insertImage = item => {
-    const start = Math.min(selection.start, editor.value.length), end = Math.min(selection.end, editor.value.length);
-    const before = editor.value.slice(0, start), after = editor.value.slice(end);
-    const prefix = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
-    const suffix = after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
-    const content = prefix + imageMarkdown(item) + suffix;
-    if (editor.value.length - (end - start) + content.length > editor.maxLength) throw new Error('正文已接近长度限制，请精简后再插入图片。');
-    editor.setRangeText(content, start, end, 'end');
-    item.inline = true;
-    rememberSelection();
-    $('#body-preview-wrap', form).open = true;
-    drawPreview();
-  };
-  preview.addEventListener('click', event => {
-    const button = event.target.closest('[data-preview]');
-    const item = button && attachments.find(item => item.id === button.dataset.preview);
-    if (item) previewImage(item, images[item.path]);
+  const editor = $('#body-editor', form);
+  const bodyEditor = createBodyEditor({
+    element: editor, source: $('#body-source', form), toggle: $('#toggle-body-source', form), value: value.body,
+    attachments: () => attachments, images: () => images,
+    onChange: () => { if (!imageBusy) form.dispatchEvent(new Event('input')); },
+    onError: message => { $('#image-status', form).textContent = message; },
+    onPreview: item => previewImage(item, images[item.path])
   });
+  const insertImage = item => bodyEditor.insertImage(item);
   const collect = () => {
-    const used = renderMarkdown(editor.value, attachments).used;
+    const used = renderMarkdown(bodyEditor.value, attachments).used;
     for (const item of attachments) if (used.has(item.id)) item.inline = true;
-    return { ...value, ...Object.fromEntries(new FormData(form)), attachments: clone(attachments), updatedAt: now() };
+    return { ...value, ...Object.fromEntries(new FormData(form)), body: bodyEditor.value, attachments: clone(attachments), updatedAt: now() };
   };
   const persistDraft = async () => {
     currentDraft = { module: collect(), at: now() };
@@ -258,17 +234,15 @@ async function editModule(module) {
     releaseImages = mountImages(list, images);
   };
   modalCleanup = () => {
-    releaseImages(); clearTimeout(previewTimer);
-    for (const url of previewURLs.values()) URL.revokeObjectURL(url);
+    releaseImages(); bodyEditor.destroy();
   };
-  drawImages(); drawPreview();
+  drawImages();
   form.addEventListener('input', event => {
     if (event.target.dataset.caption) {
       const item = attachments.find(item => item.id === event.target.dataset.caption);
       if (item) item.caption = event.target.value;
     }
     $('#draft-state', form).textContent = '正在保存草稿…';
-    schedulePreview();
     persistDraft();
   });
   list.addEventListener('click', async event => {
@@ -278,15 +252,14 @@ async function editModule(module) {
     if (!item) return;
     if (button.dataset.preview) previewImage(item, images[item.path]);
     else if (button.dataset.insert) {
-      try { insertImage(item); editor.focus(); await persistDraft(); }
+      try { insertImage(item); bodyEditor.focus(); await persistDraft(); }
       catch (error) { $('#image-status', form).textContent = error.message; }
     } else {
-      editor.value = removeImageReferences(editor.value, item);
-      selection = { start: Math.min(selection.start, editor.value.length), end: Math.min(selection.end, editor.value.length) };
       attachments = attachments.filter(candidate => candidate.id !== item.id);
       delete images[item.path];
+      bodyEditor.forgetImage(item, removeImageReferences);
       imageRevision++;
-      drawImages(); drawPreview(); await persistDraft();
+      drawImages(); await persistDraft();
     }
   });
   const addImages = async candidates => {
@@ -315,14 +288,14 @@ async function editModule(module) {
       drawImages();
       status.textContent = [`已在正文插入 ${added} 张图片。`, ...errors].join(' ');
     } catch (error) { status.textContent = error.message; }
-    finally { imageBusy = false; modalBusy = false; form.inert = false; submit.disabled = false; if (added) { editor.focus(); editor.setSelectionRange(selection.start, selection.end); } }
+    finally { imageBusy = false; modalBusy = false; form.inert = false; submit.disabled = false; if (added) bodyEditor.focus(); }
   };
   const input = $('#image-input', form), drop = $('.body-composer', form);
   $('#choose-images', form).onclick = () => input.click();
   input.onchange = () => { const files = [...input.files]; input.value = ''; addImages(files); };
   form.addEventListener('paste', event => {
     const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
-    if (files.length) { event.preventDefault(); if (event.target === editor) rememberSelection(); addImages(files); }
+    if (files.length) { event.preventDefault(); bodyEditor.remember(); addImages(files); }
   });
   form.addEventListener('dragover', event => {
     if ([...(event.dataTransfer?.types || [])].includes('Files')) { event.preventDefault(); drop.classList.add('drag-over'); }

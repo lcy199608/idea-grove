@@ -60,3 +60,16 @@ export function removeImageReferences(text, item) {
     (alt, path, original) => resolveImage(path, [item]) ? '' : original), line => line, line => line);
   return output.join('\n');
 }
+
+// Preserve every source character while replacing only real, local image references.
+// Code examples, unsupported Markdown and unknown paths stay editable as plain text.
+export function imageSegments(text, attachments = []) {
+  const { output } = transformLines(text, line => {
+    const parts = [];
+    tokens(line, value => { parts.push({ text: value }); return ''; },
+      (code, original) => { parts.push({ text: original }); return ''; },
+      (alt, path, original) => { parts.push({ text: original, item: resolveImage(path, attachments), alt }); return ''; });
+    return parts;
+  }, line => [{ text: line }], line => [{ text: line }]);
+  return output.flatMap((parts, index) => index ? [{ text: '\n' }, ...parts] : parts);
+}
