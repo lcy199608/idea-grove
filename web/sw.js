@@ -1,5 +1,5 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const CACHE = `${PREFIX}v5`;
+const CACHE = `${PREFIX}v6`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',
   './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js',
@@ -8,7 +8,10 @@ const ASSETS = [
 ];
 const ALLOWED = new Set(ASSETS.map(path => new URL(path, self.registration.scope).href));
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+  // A new cache version must not be populated from still-fresh HTTP cache entries
+  // left by the previous release (Pages serves assets with a cache lifetime).
+  const requests = ASSETS.map(path => new Request(new URL(path, self.registration.scope), { cache: 'reload' }));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(requests)));
   // Wait for every old client to close before activating a different app version.
 });
 self.addEventListener('activate', event => {

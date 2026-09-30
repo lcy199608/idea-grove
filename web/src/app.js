@@ -626,7 +626,9 @@ async function start() {
     }
     try { sessionStorage.removeItem('shinian-token'); } catch { /* Optional cleanup of legacy storage. */ }
     render();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => toast('离线缓存未能启用，在线使用不受影响。', true));
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then(registration => registration.update().catch(() => {}))
+      .catch(() => toast('离线缓存未能启用，在线使用不受影响。', true));
   } catch (error) {
     app.innerHTML = `<div class="fatal"><h1>暂时无法打开资料</h1><p>${esc(error.message)}</p><p>请不要清除浏览器数据。可以先导出原始本地记录用于恢复。</p><button class="button outline" id="raw-recovery">导出原始记录</button></div>`;
     $('#raw-recovery').onclick = async () => { const raw = await get(workspaceKey(config)); download('拾念-原始恢复记录.json', JSON.stringify(raw, null, 2), 'application/json'); };
