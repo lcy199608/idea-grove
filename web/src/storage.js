@@ -25,10 +25,13 @@ export async function get(key) {
   });
 }
 export async function set(key, value) {
+  return setRecords([[key, value]]);
+}
+export async function setRecords(records) {
   const database = await db();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction('state', 'readwrite');
-    transaction.objectStore('state').put(value, key);
+    for (const [key, value] of records) transaction.objectStore('state').put(value, key);
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(new Error('本地保存失败，存储空间可能不足。请导出备份。'));
     transaction.onabort = () => reject(new Error('本地保存被中断。请保留当前页面并导出备份。'));

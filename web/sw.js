@@ -1,8 +1,8 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const CACHE = `${PREFIX}v2`;
+const CACHE = `${PREFIX}v3`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',
-  './src/app.js', './src/model.js', './src/storage.js', './src/github.js',
+  './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js',
   './integrations/chatgpt-openapi.template.json', './integrations/chatgpt-instructions.md',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];

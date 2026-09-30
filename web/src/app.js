@@ -1,6 +1,7 @@
-import { TYPES, STATUSES, id, now, clone, marker, newTopic, newModule, topicPath, modulePath, encodeTopic, encodeModule, parseFiles, changedPaths, mergeFiles, resolveMerge, contextText } from './model.js';
-import { get, set, emptyWorkspace, workspaceKey, getCredential, saveConnection, clearCredentials } from './storage.js';
+import { TYPES, STATUSES, id, now, clone, marker, upgradeImages, newTopic, newModule, topicPath, modulePath, encodeTopic, encodeModule, parseFiles, changedPaths, mergeFiles, resolveMerge, contextText } from './model.js';
+import { get, setRecords, emptyWorkspace, workspaceKey, getCredential, saveConnection, clearCredentials } from './storage.js';
 import { GitHub } from './github.js';
+import { isImagePath, imageBlob, imageFileName, prepareImage, formatSize, base64Size, MAX_ATTACHMENTS, MAX_TOTAL_IMAGE_BYTES } from './images.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -22,6 +23,7 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="
 let config, workspace, selected = null, activeTab = 'modules', statusFilter = 'all', query = '', busy = false, token = '', sidebarOpen = false;
 let installPrompt, toastTimer, currentDraft = null, saveQueue = Promise.resolve(), modalBusy = false;
 let persistentError = '';
+let releaseMainImages = () => {};
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const topics = () => parseFiles(workspace.files);
 const currentTopic = () => topics().find(topic => topic.id === selected);
@@ -37,8 +39,11 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => element.className = '', error ? 9000 : 4500);
 }
 function queueWrite(key, value) {
-  const snapshot = clone(value);
-  const write = saveQueue.catch(() => {}).then(() => set(key, snapshot));
+  return queueRecords([[key, value]]);
+}
+function queueRecords(records) {
+  const snapshot = clone(records);
+  const write = saveQueue.catch(() => {}).then(() => setRecords(snapshot));
   saveQueue = write;
   return write;
 }
@@ -51,6 +56,7 @@ async function saveWorkspace(next, message) {
   persistentError = '';
 }
 function render() {
+  releaseMainImages();
   const all = topics();
   if (!all.some(topic => topic.id === selected)) selected = all[0]?.id || null;
   const topic = currentTopic();
@@ -75,6 +81,33 @@ function render() {
         <footer class="footer"><span>留住值得继续的想法。</span><span>${config ? `上次同步 ${workspace.syncedAt ? date(workspace.syncedAt) : '尚未同步'}` : 'LOCAL FIRST · GITHUB SYNC'}</span></footer>
       </main>
     </div>`;
+  releaseMainImages = mountImages(app, workspace.files);
+}
+
+function mountImages(root, files) {
+  const urls = [];
+  root.querySelectorAll('img[data-image-path]').forEach(img => {
+    const path = img.dataset.imagePath;
+    if (!isImagePath(path) || !files[path]) return;
+    const url = URL.createObjectURL(imageBlob(path, files[path]));
+    urls.push(url); img.src = url;
+  });
+  return () => urls.forEach(url => URL.revokeObjectURL(url));
+}
+function previewImage(item, content) {
+  if (!content) { toast('这张参考图缺失，请重新拉取或重新添加。', true); return; }
+  const viewer = document.createElement('dialog');
+  viewer.className = 'image-viewer';
+  const url = URL.createObjectURL(imageBlob(item.path, content));
+  viewer.innerHTML = `<div class="dialog-head"><div><h2>${esc(item.name)}</h2><p>${item.width} × ${item.height} · ${formatSize(item.size)} · 已保存的参考图</p></div><button class="icon-button" aria-label="关闭图片">${icon('close')}</button></div><div class="image-stage"><img src="${url}" alt="${esc(item.caption || item.name)}"></div>${item.caption ? `<p class="image-caption">${esc(item.caption)}</p>` : ''}<div class="image-viewer-actions"><a class="button primary" href="${url}" download="${esc(imageFileName(item))}">${icon('down')} 下载图片</a><button class="button outline" id="image-zoom">查看实际尺寸</button></div>`;
+  document.body.append(viewer);
+  $('.icon-button', viewer).onclick = () => viewer.close();
+  $('#image-zoom', viewer).onclick = event => {
+    const full = $('.image-stage', viewer).classList.toggle('actual-size');
+    event.currentTarget.textContent = full ? '适应窗口' : '查看实际尺寸';
+  };
+  viewer.addEventListener('close', () => { URL.revokeObjectURL(url); viewer.remove(); }, { once: true });
+  viewer.showModal();
 }
 function welcomeView() {
   return `<section class="welcome"><div class="eyebrow">A PLACE FOR YOUR NEXT GAME</div><h1>让每一次灵感，<br>都有<span>下一次。</span></h1><p class="welcome-copy">把散落在对话里的玩法、技术与世界观，<br class="desktop-break">收进一份能接着聊、接着做的创意档案。</p><div class="welcome-actions"><button class="button primary" data-action="new-topic">${icon('plus')} 创建第一个主题</button><button class="button outline" data-action="sample">看看示例 ${icon('arrow')}</button></div>
@@ -91,9 +124,9 @@ function topicView(topic) {
 }
 function modulesView(topic) {
   const filters = [['all', '全部'], ['confirmed', '已确认'], ['exploring', '待探索'], ['rejected', '已放弃']];
-  const filtered = topic.modules.filter(module => (statusFilter === 'all' || module.status === statusFilter) && `${module.title} ${module.body} ${module.reason} ${TYPES[module.type]}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = topic.modules.filter(module => (statusFilter === 'all' || module.status === statusFilter) && `${module.title} ${module.body} ${module.reason} ${TYPES[module.type]} ${(module.attachments || []).map(item => item.name + ' ' + item.caption).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   return `<div class="module-toolbar"><div class="filter-row">${filters.map(([value, label]) => `<button class="filter ${statusFilter === value ? 'active' : ''}" data-action="filter" data-id="${value}" aria-pressed="${statusFilter === value}">${label}</button>`).join('')}</div><div class="module-tools"><label class="search">${icon('search')}<input id="module-search" type="search" placeholder="搜索想法…" value="${esc(query)}" aria-label="搜索模块"></label><button class="button primary" data-action="new-module">${icon('plus')} 新增模块</button></div></div>
-    <div class="module-grid">${filtered.map(module => `<article class="module-card ${module.status}"><div class="card-meta"><span class="module-kind">${icon(module.type === 'tech' ? 'settings' : module.type === 'art' ? 'leaf' : module.type === 'question' ? 'spark' : 'grid')}${esc(TYPES[module.type])}</span>${badge(module.status)}</div><button class="card-title" data-action="view-module" data-id="${esc(module.id)}"><h2>${esc(module.title)}</h2></button><p class="card-excerpt">${esc(module.body.replace(/[#*\x60>]/g, '').slice(0, 200) || '还没有正文，继续补充这个想法。')}</p>${module.reason ? `<div class="card-reason"><span>为什么保留</span>${esc(module.reason.slice(0, 100))}</div>` : ''}<div class="card-bottom"><span>${date(module.updatedAt)}</span><button class="icon-button" data-action="edit-module" data-id="${esc(module.id)}" aria-label="编辑${esc(module.title)}">${icon('edit')}</button></div></article>`).join('')}${!query && statusFilter === 'all' ? `<button class="add-card" data-action="new-module"><span>${icon('plus')}</span><strong>留住下一个想法</strong><small>玩法、技术、体验，或者一个好问题</small></button>` : ''}</div>${!filtered.length && (query || statusFilter !== 'all') ? '<div class="empty-filter">没有找到对应模块。试试其他关键词或状态。</div>' : ''}`;
+    <div class="module-grid">${filtered.map(module => `<article class="module-card ${module.status}"><div class="card-meta"><span class="module-kind">${icon(module.type === 'tech' ? 'settings' : module.type === 'art' ? 'leaf' : module.type === 'question' ? 'spark' : 'grid')}${esc(TYPES[module.type])}</span>${badge(module.status)}</div><button class="card-title" data-action="view-module" data-id="${esc(module.id)}"><h2>${esc(module.title)}</h2></button>${module.attachments?.length ? `<button class="card-image" data-action="view-module" data-id="${esc(module.id)}" aria-label="查看参考图"><img data-image-path="${esc(module.attachments[0].path)}" alt="${esc(module.attachments[0].caption || module.attachments[0].name)}" loading="lazy"><span>${module.attachments.length} 张参考图</span></button>` : ''}<p class="card-excerpt">${esc(module.body.replace(/[#*\x60>]/g, '').slice(0, 200) || '还没有正文，继续补充这个想法。')}</p>${module.reason ? `<div class="card-reason"><span>为什么保留</span>${esc(module.reason.slice(0, 100))}</div>` : ''}<div class="card-bottom"><span>${date(module.updatedAt)}</span><button class="icon-button" data-action="edit-module" data-id="${esc(module.id)}" aria-label="编辑${esc(module.title)}">${icon('edit')}</button></div></article>`).join('')}${!query && statusFilter === 'all' ? `<button class="add-card" data-action="new-module"><span>${icon('plus')}</span><strong>留住下一个想法</strong><small>玩法、技术、体验，或者一个好问题</small></button>` : ''}</div>${!filtered.length && (query || statusFilter !== 'all') ? '<div class="empty-filter">没有找到对应模块。试试其他关键词或状态。</div>' : ''}`;
 }
 function overviewView(topic) {
   return `<div class="overview-layout"><article class="paper"><div class="paper-label">PROJECT BRIEF</div><h2>${esc(topic.title)}</h2><p>${esc(topic.description || '暂无项目描述。')}</p><h3>当前共识</h3>${topic.modules.filter(module => module.status === 'confirmed').map(module => `<button class="overview-item" data-action="view-module" data-id="${esc(module.id)}">${icon('check')}<span>${esc(module.title)}<small>${esc(TYPES[module.type])}</small></span>${icon('arrow')}</button>`).join('') || '<p class="muted">还没有确认的模块。讨论成熟后，将模块标记为「已确认」。</p>'}<h3>下一步可以讨论</h3>${topic.modules.filter(module => module.status === 'exploring').map(module => `<button class="overview-item" data-action="view-module" data-id="${esc(module.id)}">${icon('spark')}<span>${esc(module.title)}<small>${esc(TYPES[module.type])}</small></span>${icon('arrow')}</button>`).join('') || '<p class="muted">暂时没有待探索内容。</p>'}</article><aside class="context-note">${icon('book')}<h3>下一场对话，<br>从这里开始。</h3><p>接续上下文会汇集已确认模块和可选的待探索想法，自动排除废案。</p><button class="button primary" data-action="context">生成上下文 ${icon('arrow')}</button></aside></div>`;
@@ -156,36 +189,114 @@ async function editModule(module) {
   if (!topic) return;
   const draftKey = `draft:${workspaceKey(config)}:${topic.id}:${module?.id || 'new'}`;
   const saved = await get(draftKey);
+  const draftImagesKey = `${draftKey}:images`;
+  const savedImages = saved ? await get(draftImagesKey) : null;
   const value = saved?.module || module || newModule();
-  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><label class="field">具体内容 <span class="optional">支持 Markdown</span><textarea class="body-editor" name="body" rows="11" maxlength="200000" placeholder="玩法是什么？有哪些约束？哪些细节值得保留？">${esc(value.body)}</textarea></label><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
-  const form = $('form', dialog);
-  const collect = () => ({ ...value, ...Object.fromEntries(new FormData(form)), updatedAt: now() });
+  let attachments = clone(value.attachments || []);
+  const images = Object.fromEntries(attachments.map(item => [item.path, savedImages?.[item.path] ?? saved?.images?.[item.path] ?? workspace.files[item.path]]));
+  let releaseImages = () => {}, imageBusy = false, imageRevision = 0, savedImageRevision = -1;
+  showDialog(module ? '编辑创意模块' : '留住一个好想法', `${topic.title} · 编辑草稿自动保存在此设备，保存后才进入正式模块。`, `<form class="module-form">${saved ? '<div class="notice">已恢复上次未完成的编辑草稿。<button type="button" class="text-button" id="discard-draft">丢弃草稿</button></div>' : ''}<label class="field">模块标题<input name="title" required maxlength="200" placeholder="用一句话概括这个想法" value="${esc(value.title)}"></label><div class="field-pair"><label class="field">内容类型<select name="type">${Object.entries(TYPES).map(([key, label]) => `<option value="${key}" ${key === value.type ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field">当前状态<select name="status">${Object.entries(STATUSES).map(([key, label]) => `<option value="${key}" ${key === value.status ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><label class="field">具体内容 <span class="optional">支持 Markdown</span><textarea class="body-editor" name="body" rows="9" maxlength="200000" placeholder="玩法是什么？有哪些约束？哪些细节值得保留？">${esc(value.body)}</textarea></label><section class="attachment-editor" aria-label="参考图片"><div class="attachment-heading"><strong>参考图片</strong><span id="image-count"></span></div><div class="image-drop" tabindex="0" id="image-drop"><button type="button" class="button outline" id="choose-images">${icon('plus')} 添加参考图</button><input id="image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple hidden><p>手机选图，电脑可拖入或粘贴图片</p><small>每模块最多 10 张；单张原文件 ≤ 20 MB。自动压缩至最长边 2560 像素、≤ 1.5 MB，保留透明背景。GIF 保存静态画面，原图请自行留存。</small></div><p id="image-status" class="helper" role="status" aria-live="polite"></p><div id="attachment-list" class="attachment-grid"></div></section><label class="field">决策理由 <span class="optional">可选</span><textarea name="reason" rows="2" maxlength="4000" placeholder="为什么采用、仍需探索，或为什么放弃？">${esc(value.reason)}</textarea></label><label class="field">来源 <span class="optional">可选，仅作文字记录</span><input name="source" maxlength="4000" placeholder="例如：与 Codex 讨论 / 某次试玩观察" value="${esc(value.source)}"></label><div class="draft-state" id="draft-state">${saved ? '已恢复本地草稿' : '编辑内容会自动保存为草稿'}</div>${formActions()}</form>`, true);
+  const form = $('form', dialog), list = $('#attachment-list', form);
+  const collect = () => ({ ...value, ...Object.fromEntries(new FormData(form)), attachments: clone(attachments), updatedAt: now() });
   const persistDraft = async () => {
     currentDraft = { module: collect(), at: now() };
-    try { await queueWrite(draftKey, currentDraft); if ($('#draft-state', form)) $('#draft-state', form).textContent = '草稿已保存在此设备'; }
-    catch (error) { $('#draft-state', form).textContent = error.message; }
+    const revision = imageRevision;
+    const writes = [[draftKey, currentDraft]];
+    if (savedImageRevision < revision) writes.push([draftImagesKey, { ...images }]);
+    try {
+      await queueRecords(writes);
+      savedImageRevision = Math.max(savedImageRevision, revision);
+      $('#draft-state', form).textContent = '草稿和参考图已保存在此设备';
+    } catch (error) { $('#draft-state', form).textContent = error.message; }
   };
-  form.addEventListener('input', () => {
+  const drawImages = () => {
+    releaseImages();
+    $('#image-count', form).textContent = `${attachments.length} / ${MAX_ATTACHMENTS}`;
+    list.innerHTML = attachments.map(item => `<article class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><div class="attachment-meta"><span title="${esc(item.name)}">${esc(item.name)}</span><small>${item.width} × ${item.height} · ${formatSize(item.size)}</small></div><label class="field">参考说明<textarea data-caption="${esc(item.id)}" rows="2" maxlength="4000" placeholder="例如：参考配色，保留轮廓，不采用人物造型">${esc(item.caption)}</textarea></label><button type="button" class="text-button danger" data-remove="${esc(item.id)}">${icon('trash')} 移除图片</button></article>`).join('');
+    releaseImages = mountImages(list, images);
+  };
+  modalCleanup = () => releaseImages();
+  drawImages();
+  form.addEventListener('input', event => {
+    if (event.target.dataset.caption) {
+      const item = attachments.find(item => item.id === event.target.dataset.caption);
+      if (item) item.caption = event.target.value;
+    }
     $('#draft-state', form).textContent = '正在保存草稿…';
-    // Write immediately; IndexedDB keeps the text across an accidental tab close.
     persistDraft();
   });
+  list.addEventListener('click', async event => {
+    const button = event.target.closest('button');
+    if (!button || imageBusy) return;
+    const item = attachments.find(item => item.id === (button.dataset.preview || button.dataset.remove));
+    if (!item) return;
+    if (button.dataset.preview) previewImage(item, images[item.path]);
+    else {
+      attachments = attachments.filter(candidate => candidate.id !== item.id);
+      delete images[item.path];
+      imageRevision++;
+      drawImages(); await persistDraft();
+    }
+  });
+  const addImages = async candidates => {
+    if (imageBusy || !candidates.length) return;
+    imageBusy = true; modalBusy = true; form.inert = true;
+    const submit = $('button[type="submit"]', form); submit.disabled = true;
+    const status = $('#image-status', form), errors = [];
+    let added = 0;
+    try {
+      for (const file of candidates) {
+        if (attachments.length >= MAX_ATTACHMENTS) { errors.push('每个模块最多 10 张参考图，其余图片未添加。'); break; }
+        status.textContent = `正在处理 ${file.name || '粘贴的图片'}…`;
+        try {
+          const result = await prepareImage(file, topic.id, value.id);
+          const otherBytes = Object.entries(workspace.files).filter(([path]) => isImagePath(path) && !path.startsWith(`ideas/${topic.id}/images/${value.id}/`)).reduce((total, [, bytes]) => total + base64Size(bytes), 0);
+          if (otherBytes + attachments.reduce((total, item) => total + item.size, 0) + result.attachment.size > MAX_TOTAL_IMAGE_BYTES) throw new Error('当前资料库图片总量将超过 40 MB，请删除不需要的参考图或拆分资料库。');
+          attachments.push(result.attachment); images[result.attachment.path] = result.content; added++;
+          imageRevision++;
+          await persistDraft();
+        } catch (error) { errors.push(`${file.name || '图片'}：${error.message}`); }
+      }
+      drawImages();
+      status.textContent = [`已添加 ${added} 张参考图。`, ...errors].join(' ');
+    } catch (error) { status.textContent = error.message; }
+    finally { imageBusy = false; modalBusy = false; form.inert = false; submit.disabled = false; }
+  };
+  const input = $('#image-input', form), drop = $('#image-drop', form);
+  $('#choose-images', form).onclick = () => input.click();
+  input.onchange = () => { const files = [...input.files]; input.value = ''; addImages(files); };
+  drop.onkeydown = event => { if (event.target === drop && ['Enter', ' '].includes(event.key)) { event.preventDefault(); input.click(); } };
+  form.addEventListener('paste', event => {
+    const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter(Boolean);
+    if (files.length) { event.preventDefault(); addImages(files); }
+  });
+  form.addEventListener('dragover', event => {
+    if ([...(event.dataTransfer?.types || [])].includes('Files')) { event.preventDefault(); drop.classList.add('drag-over'); }
+  });
+  form.addEventListener('dragleave', event => { if (!form.contains(event.relatedTarget)) drop.classList.remove('drag-over'); });
+  form.addEventListener('drop', event => {
+    if (!event.dataTransfer?.files.length) return;
+    event.preventDefault(); drop.classList.remove('drag-over'); addImages([...event.dataTransfer.files]);
+  });
   $('#discard-draft', form)?.addEventListener('click', async () => {
-    await queueWrite(draftKey, null); dialog.close(); editModule(module);
+    try { await queueRecords([[draftKey, null], [draftImagesKey, null]]); dialog.close(); await editModule(module); }
+    catch (error) { toast(error.message, true); }
   });
   bindForm(async () => {
     const result = collect();
     result.title = result.title.trim();
     if (!result.title) throw new Error('请填写模块标题。');
     const next = clone(workspace);
+    for (const path of Object.keys(next.files)) if (path.startsWith(`ideas/${topic.id}/images/${result.id}/`)) delete next.files[path];
+    for (const item of attachments) next.files[item.path] = images[item.path];
+    if (attachments.length) upgradeImages(next.files);
     next.files[modulePath(topic.id, result.id)] = encodeModule(result);
     const meta = JSON.parse(next.files[topicPath(topic.id)]);
     meta.updatedAt = now();
     next.files[topicPath(topic.id)] = encodeTopic(meta);
-    parseFiles(next.files);
     await saveWorkspace(next, `${module ? '更新' : '新增'}模块「${result.title}」`);
-    await queueWrite(draftKey, null);
-    dialog.close(); render(); toast('模块已保存。上传后，其他设备和 AI 才能读取。');
+    await queueRecords([[draftKey, null], [draftImagesKey, null]]);
+    dialog.close(); render(); toast('模块与参考图已保存。上传后，其他设备才能读取。');
   });
 }
 // A deliberately small Markdown subset, escaped before formatting; no raw HTML or external embeds.
@@ -205,8 +316,14 @@ function markdown(text) {
   }).join('') + (inCode ? '</code></pre>' : '');
 }
 function viewModule(module) {
-  showDialog(module.title, `${TYPES[module.type]} · 更新于 ${date(module.updatedAt)}`, `<div class="module-detail">${badge(module.status)}<div class="markdown">${markdown(module.body || '暂无正文。')}</div>${module.reason ? `<div class="reason-panel"><strong>决策理由</strong><p>${esc(module.reason)}</p></div>` : ''}${module.source ? `<p class="source-line">来源：${esc(module.source)}</p>` : ''}<div class="dialog-actions spread"><button id="remove-module" class="text-button danger">${icon('trash')} 删除模块</button><button id="edit-module" class="button primary">${icon('edit')} 编辑模块</button></div></div>`, true);
-  $('#edit-module', dialog).onclick = () => editModule(module);
+  const attachments = module.attachments || [];
+  showDialog(module.title, `${TYPES[module.type]} · 更新于 ${date(module.updatedAt)}`, `<div class="module-detail">${badge(module.status)}<div class="markdown">${markdown(module.body || '暂无正文。')}</div>${attachments.length ? `<section class="attachment-section"><h3>参考图片 <small>${attachments.length} 张</small></h3><div class="attachment-grid">${attachments.map(item => `<figure class="attachment-tile"><button type="button" class="attachment-preview" data-preview="${esc(item.id)}" aria-label="放大 ${esc(item.name)}"><img data-image-path="${esc(item.path)}" alt="${esc(item.caption || item.name)}" loading="lazy"></button><figcaption><strong>${esc(item.name)}</strong>${item.caption ? `<p>${esc(item.caption)}</p>` : ''}<small>${item.width} × ${item.height} · ${formatSize(item.size)} · 点击放大或下载</small></figcaption></figure>`).join('')}</div></section>` : ''}${module.reason ? `<div class="reason-panel"><strong>决策理由</strong><p>${esc(module.reason)}</p></div>` : ''}${module.source ? `<p class="source-line">来源：${esc(module.source)}</p>` : ''}<div class="dialog-actions spread"><button id="remove-module" class="text-button danger">${icon('trash')} 删除模块</button><button id="edit-module" class="button primary">${icon('edit')} 编辑模块</button></div></div>`, true);
+  modalCleanup = mountImages(dialog, workspace.files);
+  dialog.querySelectorAll('[data-preview]').forEach(button => button.onclick = () => {
+    const item = attachments.find(item => item.id === button.dataset.preview);
+    previewImage(item, workspace.files[item.path]);
+  });
+  $('#edit-module', dialog).onclick = () => editModule(module).catch(error => toast(error.message, true));
   $('#remove-module', dialog).onclick = () => deleteModule(module);
 }
 function confirmDelete(title, description, callback) {
@@ -215,9 +332,10 @@ function confirmDelete(title, description, callback) {
 }
 function deleteModule(module) {
   const topic = currentTopic();
-  confirmDelete(`删除「${module.title}」？`, '只删除这个模块，主题中的其他内容会保留。', async () => {
+  confirmDelete(`删除「${module.title}」？`, '删除这个模块及其参考图片，主题中的其他内容会保留。', async () => {
     const next = clone(workspace);
     delete next.files[modulePath(topic.id, module.id)];
+    for (const path of Object.keys(next.files)) if (path.startsWith(`ideas/${topic.id}/images/${module.id}/`)) delete next.files[path];
     const meta = JSON.parse(next.files[topicPath(topic.id)]); meta.updatedAt = now();
     next.files[topicPath(topic.id)] = encodeTopic(meta);
     await saveWorkspace(next, `删除模块「${module.title}」`);
@@ -225,7 +343,7 @@ function deleteModule(module) {
 }
 function deleteTopic() {
   const topic = currentTopic();
-  confirmDelete(`删除主题「${topic.title}」？`, `同时删除其中 ${topic.modules.length} 个模块。`, async () => {
+  confirmDelete(`删除主题「${topic.title}」？`, `同时删除其中 ${topic.modules.length} 个模块及其参考图片。`, async () => {
     const next = clone(workspace);
     for (const path of Object.keys(next.files)) if (path.startsWith(`ideas/${topic.id}/`)) delete next.files[path];
     await saveWorkspace(next, `删除主题「${topic.title}」`);
@@ -242,7 +360,7 @@ async function copy(text) {
 }
 function showContext() {
   const topic = currentTopic();
-  showDialog('带着共识，继续聊', '默认包含已确认和待探索内容；已放弃模块不会进入上下文。', `<label class="check-field"><input id="include-exploring" type="checkbox" checked> 包含待探索想法</label><textarea id="context-output" class="context-output" rows="16" readonly aria-label="接续上下文"></textarea><div class="dialog-actions"><button class="button outline" id="download-context">${icon('down')} 下载 Markdown</button><button class="button primary" id="copy-context">${icon('copy')} 复制上下文</button></div>`, true);
+  showDialog('带着共识，继续聊', '默认包含已确认和待探索内容。参考图附名称、说明和路径；需要 AI 看图时，请从模块下载图片再上传到对话。', `<label class="check-field"><input id="include-exploring" type="checkbox" checked> 包含待探索想法</label><textarea id="context-output" class="context-output" rows="16" readonly aria-label="接续上下文"></textarea><div class="dialog-actions"><button class="button outline" id="download-context">${icon('down')} 下载 Markdown</button><button class="button primary" id="copy-context">${icon('copy')} 复制上下文</button></div>`, true);
   const update = () => $('#context-output', dialog).value = contextText(topic, $('#include-exploring', dialog).checked);
   update(); $('#include-exploring', dialog).onchange = update;
   $('#copy-context', dialog).onclick = () => copy($('#context-output', dialog).value);
@@ -328,7 +446,7 @@ function resolveConflicts(result) {
       const meta = Object.entries(files).find(([path]) => path.endsWith('/topic.json'));
       return meta ? JSON.parse(meta[1]).title : files['idea-vault.json'] ? '资料库标记' : '已删除 / 不存在';
     };
-    showDialog('有些想法，需要你来选择', '同一主题在两端都有修改。选择保留的版本；取消不会改变本地资料。', `<form><p class="notice">冲突按整个主题处理，包括主题信息与全部模块。可先下载两端副本，再决定保留哪一版。</p>${result.conflicts.map(conflict => `<fieldset class="conflict"><legend>${esc(label(conflict.local) !== '已删除 / 不存在' ? label(conflict.local) : label(conflict.remote))}</legend><div class="conflict-options">${[['local', '保留本机'], ['remote', '采用 GitHub']].map(([side, title]) => `<label><input type="radio" name="${esc(conflict.key)}" value="${side}" required><strong>${title}</strong><small>${esc(label(conflict[side]))}</small><details><summary>查看该版本完整资料</summary><pre>${esc(Object.entries(conflict[side]).map(([path, content]) => `${path}\n${content}`).join('\n\n') || '此版本已删除整个主题。')}</pre></details></label>`).join('')}</div></fieldset>`).join('')}<button type="button" class="button outline" id="export-conflicts">${icon('down')} 下载冲突副本</button>${formActions('应用所选版本')}</form>`, true);
+    showDialog('有些想法，需要你来选择', '同一主题在两端都有修改。选择保留的版本；取消不会改变本地资料。', `<form><p class="notice">冲突按整个主题处理，包括主题信息与全部模块。可先下载两端副本，再决定保留哪一版。</p>${result.conflicts.map(conflict => `<fieldset class="conflict"><legend>${esc(label(conflict.local) !== '已删除 / 不存在' ? label(conflict.local) : label(conflict.remote))}</legend><div class="conflict-options">${[['local', '保留本机'], ['remote', '采用 GitHub']].map(([side, title]) => `<label><input type="radio" name="${esc(conflict.key)}" value="${side}" required><strong>${title}</strong><small>${esc(label(conflict[side]))}</small><details><summary>查看该版本完整资料</summary><pre>${esc(Object.entries(conflict[side]).map(([path, content]) => `${path}\n${isImagePath(path) ? `[图片附件 ${formatSize(base64Size(content))}，完整数据包含在冲突副本中]` : content}`).join('\n\n') || '此版本已删除整个主题。')}</pre></details></label>`).join('')}</div></fieldset>`).join('')}<button type="button" class="button outline" id="export-conflicts">${icon('down')} 下载冲突副本</button>${formActions('应用所选版本')}</form>`, true);
     $('#export-conflicts', dialog).onclick = () => download(`拾念-冲突-${Date.now()}.json`, JSON.stringify(result.conflicts, null, 2), 'application/json');
     modalCleanup = () => { if (!settled) resolve(null); };
     bindForm(async data => {
@@ -349,6 +467,7 @@ async function sync(upload) {
     const result = mergeFiles(workspace.base, workspace.files, remote.files);
     const merged = result.conflicts.length ? await resolveConflicts(result) : result.merged;
     if (!merged) return;
+    if (Object.keys(merged).some(isImagePath)) upgradeImages(merged);
     parseFiles(merged);
     let next = clone(workspace);
     next.files = merged; next.base = remote.files; next.head = remote.head; next.syncedAt = now();
@@ -368,22 +487,22 @@ async function sync(upload) {
   } finally { busy = false; render(); }
 }
 function backups() {
-  showDialog('给灵感留一份副本', '备份仅包含当前空间的正式模块和同步基线，不包含令牌。未保存的编辑草稿请先保存为模块。', `<div class="backup-actions"><button class="button outline" id="export-backup">${icon('down')} 导出当前资料备份</button><label class="field">导入拾念备份<input id="import-file" type="file" accept="application/json,.json"></label><p class="helper">导入会显示主题数量供确认，再替换此空间的本地资料。上传之前不会修改 GitHub；原本机资料会自动留存一份恢复副本。</p><button class="text-button" id="recover-import">下载最近一次导入前的恢复副本</button><div class="form-error" role="alert"></div></div>`);
-  const backup = files => JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 1, exportedAt: now(), files, base: workspace.base, head: workspace.head }, null, 2);
+  showDialog('给灵感留一份副本', '备份包含当前空间的正式模块和参考图片，不包含令牌。未保存的编辑草稿请先保存为模块。', `<div class="backup-actions"><button class="button outline" id="export-backup">${icon('down')} 导出当前资料备份</button><label class="field">导入拾念备份<input id="import-file" type="file" accept="application/json,.json"></label><p class="helper">导入会显示主题数量供确认，再替换此空间的本地资料。上传之前不会修改 GitHub；原本机资料会自动留存一份恢复副本。</p><button class="text-button" id="recover-import">下载最近一次导入前的恢复副本</button><div class="form-error" role="alert"></div></div>`);
+  const backup = files => JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 2, exportedAt: now(), files }, null, 2);
   $('#export-backup', dialog).onclick = () => download(`拾念-备份-${new Date().toISOString().slice(0, 10)}.json`, backup(workspace.files), 'application/json');
   $('#recover-import', dialog).onclick = async () => {
     const saved = await get(`recovery:${workspaceKey(config)}`);
     if (!saved) { toast('还没有导入前恢复副本。'); return; }
-    download('拾念-导入前恢复副本.json', JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 1, exportedAt: now(), files: saved.files }, null, 2), 'application/json');
+    download('拾念-导入前恢复副本.json', JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 2, exportedAt: now(), files: saved.files }, null, 2), 'application/json');
   };
   $('#import-file', dialog).onchange = async event => {
     try {
       const file = event.target.files[0]; if (!file) return;
-      if (file.size > 20 * 1024 * 1024) throw new Error('首版支持最多 20 MB 的备份。');
+      if (file.size > 256 * 1024 * 1024) throw new Error('备份超过 256 MB，请拆分资料库。');
       const data = JSON.parse(await file.text());
-      if (data.app !== 'idea-vault-backup' || data.schemaVersion !== 1) throw new Error('不是受支持的拾念备份。');
+      if (data.app !== 'idea-vault-backup' || ![1, 2].includes(data.schemaVersion)) throw new Error('不是受支持的拾念备份。');
       const incoming = parseFiles(data.files);
-      showDialog('导入这份资料？', `含 ${incoming.length} 个主题、${incoming.reduce((total, topic) => total + topic.modules.length, 0)} 个模块。`, `<form><p class="notice">导入会替换当前空间的本地资料，并保留当前 GitHub 同步基线。被替换的远端内容可能在下次上传时删除，请先确认备份内容。</p><label class="check-field"><input type="checkbox" required> 确认以备份替换当前本地资料</label>${formActions('导入备份')}</form>`);
+      showDialog('导入这份资料？', `含 ${incoming.length} 个主题、${incoming.reduce((total, topic) => total + topic.modules.length, 0)} 个模块、${Object.keys(data.files).filter(isImagePath).length} 张参考图。`, `<form><p class="notice">导入会替换当前空间的本地资料，并保留当前 GitHub 同步基线。被替换的远端内容可能在下次上传时删除，请先确认备份内容。</p><label class="check-field"><input type="checkbox" required> 确认以备份替换当前本地资料</label>${formActions('导入备份')}</form>`);
       bindForm(async () => {
         await queueWrite(`recovery:${workspaceKey(config)}`, workspace);
         const next = clone(workspace); next.files = data.files;

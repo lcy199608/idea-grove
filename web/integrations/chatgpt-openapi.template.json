@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "拾念 GitHub 资料库",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "description": "个人游戏创意资料库。仅修改 idea-vault.json 与 ideas/ 内协议文件；每次基于最新 HEAD 更新，禁止 force。"
   },
   "servers": [
@@ -80,7 +80,7 @@
     "/git/blobs/{file_sha}": {
       "get": {
         "operationId": "getVaultBlob",
-        "summary": "读取单个资料文件；使用 Code Interpreter 对 base64 内容做 UTF-8 解码",
+        "summary": "读取资料文件；文字 Base64 按 UTF-8 解码，图片 Base64 按二进制解码，不能当作文字",
         "parameters": [
           {
             "name": "file_sha",
@@ -122,7 +122,7 @@
                       "properties": {
                         "path": {
                           "type": "string",
-                          "pattern": "^(idea-vault\\.json|ideas/[a-zA-Z0-9_-]{1,80}/(topic\\.json|modules/[a-zA-Z0-9_-]{1,80}\\.md))$"
+                          "pattern": "^(idea-vault[.]json|ideas/[a-zA-Z0-9_-]{1,80}/(topic[.]json|modules/[a-zA-Z0-9_-]{1,80}[.]md|images/[a-zA-Z0-9_-]{1,80}/[a-zA-Z0-9_-]{1,80}[.](jpg|png|webp)))$"
                         },
                         "mode": {
                           "type": "string",
@@ -138,14 +138,14 @@
                         },
                         "content": {
                           "type": "string",
-                          "description": "完整 UTF-8 文件内容。添加/更新时提供，与 sha 互斥。"
+                          "description": "仅用于文字文件的完整 UTF-8 内容。图片为二进制，不能写入 content；已有图片通过 base_tree 保留。"
                         },
                         "sha": {
                           "type": [
                             "string",
                             "null"
                           ],
-                          "description": "删除时传 null，不传 content；不能删除不存在的文件。"
+                          "description": "删除文件（含附件）时传 null，不传 content。非空 SHA 只能使用实际读到的 blob SHA，禁止猜测。"
                         }
                       },
                       "required": [

@@ -14,6 +14,16 @@ from pathlib import Path
 TYPES = {"gameplay", "experience", "art", "tech", "question", "other"}
 STATUSES = {"confirmed", "exploring", "rejected"}
 ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,80}$")
+IMAGE_PATTERN = re.compile(r"ideas/[a-zA-Z0-9_-]{1,80}/images/[a-zA-Z0-9_-]{1,80}/[a-zA-Z0-9_-]{1,80}\.(jpg|png|webp)")
+MAX_IMAGE_BYTES = 1536 * 1024
+
+
+def is_image(path):
+    return bool(IMAGE_PATTERN.fullmatch(path))
+
+
+def image_mime(path):
+    return {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[path.rsplit(".", 1)[-1]]
 
 
 def now():
@@ -98,23 +108,40 @@ def validate_module(value):
     text_limit(value.get("body"), 200000, "正文")
     for field in ("reason", "source"):
         text_limit(value.get(field, ""), 4000, field)
+    attachments = value.get("attachments", [])
+    if not isinstance(attachments, list) or len(attachments) > 10:
+        raise ValueError("每个模块最多支持 10 张参考图。")
+    for item in attachments:
+        identifier(item["id"])
+        text_limit(item["name"], 200, "图片名称")
+        text_limit(item["caption"], 4000, "图片说明")
+        if not is_image(item["path"]) or item["mimeType"] != image_mime(item["path"]):
+            raise ValueError("图片路径或格式错误。")
+        if any(type(item.get(key)) is not int or not 1 <= item[key] <= 2560 for key in ("width", "height")):
+            raise ValueError("图片尺寸无效或超过 2560 像素。")
+        if type(item.get("size")) is not int or not 1 <= item["size"] <= MAX_IMAGE_BYTES:
+            raise ValueError("单张图片不能超过 1.5 MB。")
     if len(module_content(value).encode("utf-8")) > 300000:
         raise ValueError("模块超过 300000 UTF-8 字节，请拆分。")
 
 
 def load(root):
     marker = root / "idea-vault.json"
+    version = 1
     if marker.is_symlink():
         raise ValueError("资料标记不能是符号链接。")
     if marker.exists():
         value = json.loads(marker.read_text(encoding="utf-8"))
-        if value.get("schemaVersion") != 1 or value.get("app") != "idea-vault":
+        if value.get("schemaVersion") not in (1, 2) or value.get("app") != "idea-vault":
             raise ValueError("资料库版本不受支持。")
+        version = value["schemaVersion"]
     ideas = root / "ideas"
     if ideas.is_symlink():
         raise ValueError("ideas 不能是符号链接。")
     results = []
     count = 1 if marker.exists() else 0
+    image_paths = set()
+    total_images = 0
     for path in ideas.rglob("*") if ideas.exists() else []:
         if path.is_symlink():
             raise ValueError("资料不能是符号链接。")
@@ -123,10 +150,28 @@ def load(root):
         if not managed(path.relative_to(root).as_posix()):
             raise ValueError(f"ideas 中有不支持的文件：{path.name}")
         count += 1
-        if path.stat().st_size > 300000:
-            raise ValueError("资料文件超过 300000 字节。")
+        relative = path.relative_to(root).as_posix()
+        size = path.stat().st_size
+        if is_image(relative):
+            if not 1 <= size <= MAX_IMAGE_BYTES:
+                raise ValueError("图片为空或超过 1.5 MB。")
+            with path.open("rb") as handle:
+                header = handle.read(16)
+            mime = image_mime(relative)
+            valid = header.startswith(b"\xff\xd8\xff") if mime == "image/jpeg" else header.startswith(b"\x89PNG\r\n\x1a\n") if mime == "image/png" else header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+            if not valid:
+                raise ValueError("图片格式与扩展名不一致。")
+            image_paths.add(relative)
+            total_images += size
+        elif size > 300000:
+            raise ValueError("文字资料文件超过 300000 字节。")
+    if total_images > 40 * 1024 * 1024:
+        raise ValueError("资料库图片总量超过 40 MB。")
+    if image_paths and version != 2:
+        raise ValueError("含图片的资料库需要 schemaVersion 2。")
     if count > 2000:
         raise ValueError("首版最多支持 2000 个资料文件。")
+    referenced = set()
     if ideas.exists():
         for path in sorted(ideas.glob("*/topic.json")):
             topic = json.loads(path.read_text(encoding="utf-8"))
@@ -139,18 +184,27 @@ def load(root):
                 validate_module(module)
                 if module["id"] != mod_path.stem:
                     raise ValueError("模块 ID 与路径不一致。")
+                for item in module.get("attachments", []):
+                    expected = f"ideas/{topic['id']}/images/{module['id']}/{item['id']}.{item['path'].rsplit('.', 1)[-1]}"
+                    if item["path"] != expected or item["path"] in referenced or item["path"] not in image_paths:
+                        raise ValueError("图片缺失、重复或不属于当前模块。")
+                    if (root / item["path"]).stat().st_size != item["size"]:
+                        raise ValueError("图片文件大小与元数据不一致。")
+                    referenced.add(item["path"])
                 topic["modules"].append(module)
             results.append(topic)
         for path in ideas.glob("*/modules/*.md"):
             if not (path.parent.parent / "topic.json").exists():
                 raise ValueError("发现缺少所属主题的模块。")
+    if image_paths != referenced:
+        raise ValueError("发现未关联到模块的图片。")
     if results and not marker.exists():
         raise ValueError("资料缺少 idea-vault.json 标记。")
     return results
 
 
 def managed(path):
-    return path == "idea-vault.json" or bool(re.fullmatch(r"ideas/[a-zA-Z0-9_-]{1,80}/(?:topic\.json|modules/[a-zA-Z0-9_-]{1,80}\.md)", path))
+    return path == "idea-vault.json" or is_image(path) or bool(re.fullmatch(r"ideas/[a-zA-Z0-9_-]{1,80}/(?:topic\.json|modules/[a-zA-Z0-9_-]{1,80}\.md)", path))
 
 
 def topic_by_id(topics, tid):
@@ -215,6 +269,8 @@ def main():
                 print(f"\n决策理由：{module['reason']}")
             if module.get("source"):
                 print(f"\n来源：{module['source']}")
+            for item in module.get("attachments", []):
+                print(f"\n参考图：{item['name']}\n仓库路径：{item['path']}\n说明：{item['caption']}\n本地文件：{root / item['path']}")
         return
     if args.command == "pull":
         if git(root, "status", "--porcelain").strip():
@@ -278,12 +334,17 @@ def main():
         path = root / "ideas" / topic["id"] / "modules" / f"{args.module}.md"
         if not path.is_file():
             raise ValueError("指定模块不存在。")
+        module = next(item for item in topic["modules"] if item["id"] == args.module)
+        for item in module.get("attachments", []):
+            (root / item["path"]).unlink()
         path.unlink()
         topic["updatedAt"] = now()
         write_topic(root, topic)
         print("模块已从本地删除，尚未推送。")
     elif args.command == "delete-topic":
         for module in topic["modules"]:
+            for item in module.get("attachments", []):
+                (root / item["path"]).unlink()
             (root / "ideas" / topic["id"] / "modules" / f"{module['id']}.md").unlink()
         (root / "ideas" / topic["id"] / "topic.json").unlink()
         print("主题及其模块已从本地删除，尚未推送。")
