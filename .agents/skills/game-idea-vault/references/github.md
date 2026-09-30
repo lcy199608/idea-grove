@@ -15,8 +15,8 @@
 仅在用户已明确要求保存或删除且范围明确时执行；普通讨论/整理预览不创建 tree、commit 或分支。
 
 1. 重新读取最新 HEAD 和相关文件，保留讨论基线。如果同一内容已在远端变化，比较基线、拟写版本和远端：不相关变化保留，真实冲突由用户决定。采用最新 HEAD 作为唯一父提交。
-2. 按 schema.md 准备全部文件变化。保留 ID、createdAt、未知字段和图片；更新模块及所属主题 updatedAt。纯文字新库创建 v1 标记，已有 v2 不降级。不修改 README、应用源码、工作流或其他路径。
-3. `create_tree(repository_full_name, base_tree_sha=<最新 commit.tree.sha>, tree_elements=[...])`。新增/更新文字用 `{path, mode:"100644", type:"blob", content:"完整 UTF-8 正文"}`；删除已有文件用 `{path, mode:"100644", type:"blob", sha:null}` 且不传 content。未改图片通过 base_tree 保留，不能把二进制图片当文字写入。
+2. 有聊天参考图时，先按 chat-images.md 准备并上传真实图片 blobs；必须图片失败则停止，不能只提交其正文引用。按 schema.md 准备全部文件变化。保留 ID、createdAt、未知字段和图片；更新模块及所属主题 updatedAt。纯文字新库创建 v1 标记，已有 v2 不降级。不修改 README、应用源码、工作流或其他路径。
+3. `create_tree(repository_full_name, base_tree_sha=<最新 commit.tree.sha>, tree_elements=[...])`。新增/更新文字用 `{path, mode:"100644", type:"blob", content:"完整 UTF-8 正文"}`；删除已有文件用 `{path, mode:"100644", type:"blob", sha:null}` 且不传 content。新图片 tree 条目使用 create_blob 返回的 SHA；未改图片通过 base_tree 保留，不能把二进制图片当文字写入。
 4. `create_commit(repository_full_name, message, tree_sha=<新 tree>, parent_sha=<最新 HEAD>)`；不增加其他父提交。
 5. `update_ref(repository_full_name, branch_name=<配置分支>, sha=<新 commit>, force=false)`。此调用成功才表示资料库分支已保存。返回真实提交链接 `https://github.com/<owner>/<repo>/commit/<SHA>`，不要仅报告 tree/commit 创建成功。
 6. 分支更新因并发被拒绝：重新读取远端，仍无冲突时最多再合并重试一次；有冲突或再次失败则保留拟写内容并说明，不 force。超时导致结果未知时只读查询当前分支及提交关系/对应文件，确认实际状态后再决定后续，不盲目重复提交。

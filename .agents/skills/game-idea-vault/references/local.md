@@ -18,6 +18,6 @@ python3 /技能目录/scripts/vault.py --repo /资料仓库 pull
 python3 /技能目录/scripts/vault.py --repo /资料仓库 push --message '沉淀已确认的内容'
 ```
 
-正文通过 UTF-8 文件传递，避免 shell 转义。省略 reason/source 保留原值，传空字符串清空。context 默认排除 rejected，--confirmed-only 仅输出已确认内容。图片由拾念新增，脚本保留附件元数据，删除模块/主题会同时删除关联图片。
+正文通过 UTF-8 文件传递，避免 shell 转义。省略 reason/source 保留原值，传空字符串清空。context 默认排除 rejected，--confirmed-only 仅输出已确认内容。聊天参考图可按 chat-images.md 准备，在资料库写入真实图片并将附件元数据与正文同次更新；vault.py 本身不提供图片插入命令。脚本保留附件元数据，删除模块/主题会同时删除关联图片。
 
 一次逻辑变更准备完成后统一 push。脚本只暂存资料路径，已有暂存内容或无关未推送提交时停止；只推明确 upstream，不 force。若 upstream 不同于配置分支，先说明，不偷偷更改远端或分支。push 成功才返回远端提交链接；失败保留本地工作。
