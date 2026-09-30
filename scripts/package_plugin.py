@@ -35,7 +35,7 @@ interface = {
     'logo': './assets/icon.png',
     'brandColor': '#42634B'
 }
-identity = {'name': 'shinian', 'version': '0.3.0', 'description': '跨设备游戏创意整理与 GitHub 资料同步'}
+identity = {'name': 'shinian', 'version': '0.3.1', 'description': '跨设备游戏创意整理与 GitHub 资料同步'}
 extension = {'apps': './.app.json', 'interface': interface}
 manifest = {'$schema': 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', **identity, 'extensions': {'com.openai': extension}}
 (target / 'plugin.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')

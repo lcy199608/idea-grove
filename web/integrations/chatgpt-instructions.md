@@ -20,6 +20,8 @@
 
 ## 资料格式 v1 / v2
 
+以下仅为格式示例；主题、模块、设计结论和参考图信息应来自当前用户资料，不将示例值写入资料库。
+
 所有资料仅位于 idea-vault.json 或 ideas/ 下。不要修改 README、.github、源码、技能或其他路径。v1 为文字资料，v2 增加图片附件；当前 Actions 用于维护文字与已有附件，不负责从聊天上传新图片。
 
 idea-vault.json：
@@ -48,7 +50,7 @@ status 可选：confirmed、exploring、rejected。
 
 模块头部可有 attachments 数组，最多 10 项。每项包含 id、path、name、caption、mimeType、width、height、size。例如：
 
-{"id":"reference-1","path":"ideas/forest/images/sound-loop/reference-1.webp","name":"森林配色.png","caption":"仅参考冷暖配色","mimeType":"image/webp","width":1280,"height":720,"size":123456}
+{"id":"reference-1","path":"ideas/topic-id/images/module-id/reference-1.webp","name":"参考图.png","caption":"该图片的参考用途","mimeType":"image/webp","width":1280,"height":720,"size":123456}
 
 图片路径固定为 ideas/<topic-id>/images/<module-id>/<image-id>.(jpg|png|webp)，保存真实二进制文件。最长边 2560 像素、单张最大 1572864 字节、资料库图片总量最大 41943040 字节。name 最多 200 字符、caption 最多 4000 字符；size 是解码后的字节数。
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "shinian",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "跨设备游戏创意整理与 GitHub 资料同步",
   "extensions": {
     "com.openai": {

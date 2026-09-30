@@ -1,6 +1,6 @@
 {
   "name": "shinian",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "跨设备游戏创意整理与 GitHub 资料同步",
   "skills": "./skills/",
   "apps": "./.app.json",

@@ -24,14 +24,16 @@ ideas/
 
 主题和模块 ID 为稳定 UUID 或 `[a-zA-Z0-9_-]{1,80}`，不包含中文、斜杠或点。改标题不改 ID。日期为可解析的 ISO 8601 字符串。
 
+以下示例仅展示结构，示例 ID、标题、正文、状态和时间均需替换为当前资料的实际值，不创建示例主题。
+
 `topic.json`：
 
 ```json
 {
-  "id": "forest",
-  "title": "回声森林",
-  "description": "通过声音改变森林的探索解谜游戏。",
-  "tags": ["探索", "解谜"],
+  "id": "topic-id",
+  "title": "主题标题",
+  "description": "当前主题的一句话描述。",
+  "tags": [],
   "createdAt": "2026-09-29T00:00:00.000Z",
   "updatedAt": "2026-09-29T00:00:00.000Z"
 }
@@ -41,13 +43,10 @@ ideas/
 
 ```markdown
 ---
-{"id":"sound-loop","title":"声音驱动探索","type":"gameplay","status":"confirmed","reason":"先验证一个清晰的核心循环","source":"与用户讨论后确认","createdAt":"2026-09-29T00:00:00.000Z","updatedAt":"2026-09-29T00:00:00.000Z"}
+{"id":"module-id","title":"模块标题","type":"gameplay","status":"confirmed","reason":"保留该内容的依据","source":"与用户讨论后确认","createdAt":"2026-09-29T00:00:00.000Z","updatedAt":"2026-09-29T00:00:00.000Z"}
 ---
 
-观察环境 → 尝试发声 → 发现变化 → 打开新路径。
-
-- 第一段体验只引入一种声音和一种植物。
-- 不加入战斗。
+当前模块的 Markdown 正文，依据用户讨论填写。
 ```
 
 字段限制：标题非空、最多 200 字符；主题描述 / reason / source 最多 4000 字符；正文最多 200000 字符；标签最多 20 个，每个最多 40 字符。最多 2000 个资料文件（包含图片）；文字单文件最多 300000 UTF-8 字节。中文内容接近限制时优先按字节限制拆模块。
@@ -62,7 +61,7 @@ status：`confirmed`（用户明确采用）、`exploring`（未决）、`reject
 模块的单行 JSON 元数据增加可选 `attachments` 数组，最多 10 项，每项形如：
 
 ```json
-{"id":"ref-1","path":"ideas/forest/images/sound-loop/ref-1.webp","name":"森林配色.png","caption":"仅参考冷暖配色","mimeType":"image/webp","width":1280,"height":720,"size":123456}
+{"id":"ref-1","path":"ideas/topic-id/images/module-id/ref-1.webp","name":"参考图.png","caption":"该图片的参考用途","mimeType":"image/webp","width":1280,"height":720,"size":123456}
 ```
 
 - 路径为 `ideas/<topic-id>/images/<module-id>/<image-id>.(jpg|png|webp)`，ID 与模块、主题严格对应。每个图片文件必须恰好被所属模块引用一次；禁止孤立文件、跨模块引用或引用缺失文件。

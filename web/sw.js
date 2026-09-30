@@ -1,5 +1,5 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const CACHE = `${PREFIX}v8`;
+const CACHE = `${PREFIX}v9`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',
   './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js', './src/plugin-connection.js',
