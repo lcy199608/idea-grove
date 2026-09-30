@@ -7,11 +7,11 @@ export class GitHub {
     this.token = token;
     this.root = `/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}`;
   }
-  async request(path, method = 'GET', body) {
+  async request(path, method = 'GET', body, root = this.root) {
     if (!this.token) throw new Error('请在同步设置中填写 GitHub 访问令牌。');
     let response;
     try {
-      response = await fetch(`https://api.github.com${this.root}${path}`, {
+      response = await fetch(`https://api.github.com${root}${path}`, {
         method, cache: 'no-store', credentials: 'omit', redirect: 'error',
         headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${this.token}`, 'X-GitHub-Api-Version': '2026-03-10', ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,

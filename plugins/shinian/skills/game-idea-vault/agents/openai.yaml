@@ -1,0 +1,6 @@
+interface:
+  display_name: "拾念"
+  short_description: "记住资料仓库，接续游戏创意、整理共识，并按明确要求保存同步到 GitHub"
+  default_prompt: "使用 $game-idea-vault 打开我的拾念资料库，列出已有主题，暂时不要修改。"
+policy:
+  allow_implicit_invocation: true

@@ -34,7 +34,7 @@ python3 scripts/serve.py
 - 删除与另一端修改相遇时显示冲突，避免旧设备悄悄恢复删除内容。
 - 资料备份导入 / 导出、冲突副本下载、导入前恢复副本。
 - 单个来源只允许一个编辑窗口，避免本地多标签页覆盖草稿。
-- 拾念 Skill 固定资料仓库，通过 GitHub 插件读取与按要求保存；支持“继续讨论”“整理本次讨论”等自然语言，见 [使用说明](docs/codex.md)。
+- 拾念插件/Skill 通过云端连接配置记住个人资料仓库，通过 GitHub 插件读取与按要求保存；支持“继续讨论”“整理本次讨论”等自然语言，见 [使用说明](docs/codex.md)。
 - 内置私人 GPT 指令与按当前仓库生成的 Actions 配置下载（需要账号提供 Actions 入口）。
 - 可安装的 PWA、响应式布局、应用图标与静态离线缓存。
 
@@ -71,9 +71,11 @@ python3 scripts/serve.py
 
 若默认分支不是 main，需要同步修改工作流的触发分支。应用使用相对地址，同时适配 `username.github.io/` 与 `username.github.io/project/`。应用每次发布修改缓存资源时，应提升 web/sw.js 的 CACHE 版本；关闭所有旧窗口再打开应用以启用新版本。
 
-本项目已上传至 `lcy199608/idea-grove` 并启用 Pages；私有资料仓库 `lcy199608/game-ideas` 已添加初始 README。浏览器仍需首次配置仓库和令牌；私人 GPT 仍需按接入文档配置。源码和发布文件不包含任何登录令牌。
+本项目已上传至 `lcy199608/idea-grove` 并启用 Pages；私有资料仓库 `lcy199608/game-ideas` 已添加初始 README。浏览器仍需首次配置仓库和令牌；ChatGPT 安装拾念插件后单独连接 GitHub。源码和发布文件不包含任何登录令牌。
 
 ## 连接 AI
+
+优先使用 [拾念插件：安装与共享配置](docs/plugin.md)。插件包内不含个人默认仓库；Web 首次共享配置后，新聊天可通过 GitHub 找回。
 
 - [Codex Skill 安装与使用](docs/codex.md)
 - [私人 GPT Actions 配置](integrations/chatgpt/README.md)

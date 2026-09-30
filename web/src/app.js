@@ -4,6 +4,7 @@ import { GitHub } from './github.js';
 import { isImagePath, imageBlob, imageFileName, prepareImage, formatSize, base64Size, MAX_ATTACHMENTS, MAX_TOTAL_IMAGE_BYTES } from './images.js';
 import { renderMarkdown, removeImageReferences } from './markdown.js';
 import { createBodyEditor } from './body-editor.js';
+import { sharePluginConnection } from './plugin-connection.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -371,6 +372,27 @@ async function copy(text) {
   try { await navigator.clipboard.writeText(text); toast('已复制。'); }
   catch { toast('浏览器未允许复制。请选中文字手动复制或下载文件。', true); }
 }
+function pluginConnectionControls(parent) {
+  const section = document.createElement('section');
+  section.innerHTML = `<h3>与拾念插件共用配置</h3><p class="helper">使用已保存的仓库设置：${config ? esc(config.owner + '/' + config.repo + ' · ' + config.branch) : '尚未配置'}。共享后，插件可通过同一个 GitHub 账号找回仓库。只向该仓库保存账号编号、仓库和分支，不上传令牌或创意。</p><div class="dialog-actions"><button type="button" class="button outline" data-share-connection>共享 / 更新仓库配置</button><button type="button" class="button outline" data-copy-connection>复制首次配置说明</button></div><p class="helper" data-connection-result role="status">请先保存上方设置，再共享。ChatGPT 仍需单独连接 GitHub；更换仓库或分支后需再次共享。</p>`;
+  parent.append(section);
+  $('[data-copy-connection]', section).onclick = () => {
+    if (!config) { toast('请先保存资料仓库设置。', true); return; }
+    copy(`拾念，请配置并记住资料仓库 ${config.owner}/${config.repo}，资料分支 ${config.branch}。请先核对 GitHub 连接，并保存设置供下次使用；只保存连接配置，不修改游戏创意。`);
+  };
+  $('[data-share-connection]', section).onclick = async () => {
+    if (modalBusy || busy) return;
+    if (!config || !token) { toast('请先在同步设置中保存仓库和访问令牌。', true); return; }
+    const body = $('.dialog-body', dialog), result = $('[data-connection-result]', section);
+    modalBusy = true; body.inert = true;
+    result.textContent = '正在保存连接配置…';
+    try {
+      const saved = await sharePluginConnection(new GitHub({ ...config }, token));
+      result.textContent = `已共享 ${saved.document.repository} · ${saved.document.branch}。在 ChatGPT 选择拾念，说“打开我的创意库”即可。此操作未上传本机创意。`;
+    } catch (error) { result.textContent = `${error.message} 连接配置尚未确认保存；主题和草稿未受影响。`; }
+    finally { modalBusy = false; body.inert = false; }
+  };
+}
 function showContext() {
   const topic = currentTopic();
   showDialog('带着共识，继续聊', '默认包含已确认和待探索内容。参考图附名称、说明和路径；需要 AI 看图时，请从模块下载图片再上传到对话。', `<label class="check-field"><input id="include-exploring" type="checkbox" checked> 包含待探索想法</label><textarea id="context-output" class="context-output" rows="16" readonly aria-label="接续上下文"></textarea><div class="dialog-actions"><button class="button outline" id="download-context">${icon('down')} 下载 Markdown</button><button class="button primary" id="copy-context">${icon('copy')} 复制上下文</button></div>`, true);
@@ -397,6 +419,7 @@ function settings() {
     } catch (error) { if (revision === credentialRevision && tokenInput.isConnected) toast(error.message, true); }
   };
   for (const name of ['owner', 'repo']) connectionForm.elements.namedItem(name).addEventListener('input', restoreCredential);
+  pluginConnectionControls($('.dialog-body', dialog));
   $('#clear-login', dialog).onclick = async () => {
     if (modalBusy) return;
     modalBusy = true;
@@ -526,7 +549,8 @@ function backups() {
   };
 }
 function guide() {
-  showDialog('把对话，接进你的创意空间', 'ChatGPT 与 Codex 共用资料，聊天记录留在各自的平台。', `<div class="guide"><article><span class="step">01 / CODEX</span><h3>用 Skill 连接仓库</h3><p>项目附带 game-idea-vault Skill。将它安装到 Codex 后，指定本地资料仓库，就可以读取上下文、整理模块并提交。首次需要在电脑上克隆资料仓库并完成 GitHub 认证。</p><blockquote>“读取我的资料仓库，继续讨论回声森林。采用的结论再沉淀。”</blockquote></article><article><span class="step">02 / CHATGPT</span><h3>用私人 GPT 直接连接 GitHub</h3><p>项目附带 GPT 指令与 Actions 配置生成器。配置专属仓库地址和认证后，可直接读取、更新资料。账号是否支持 Actions 及手机端体验，请按接入文档人工验证。</p><blockquote>“把刚才确认的潜行机制更新到核心玩法模块。”</blockquote></article><article><span class="step">03 / ANYWHERE</span><h3>随时带走上下文</h3><p>点击主题右上角「接续上下文」，复制或下载 Markdown，交给任意 AI。已放弃内容会自动排除。</p></article><div class="notice">AI 保存成功后，在这里点「拉取」；这里编辑完成后点「上传」。仅保存在本机的内容，AI 暂时无法读取。</div>${installPrompt ? '<button class="button primary" id="install-app">安装到此设备</button>' : '<p class="helper">手机可通过浏览器菜单添加到主屏幕；支持安装的桌面浏览器会显示安装入口。</p>'}</div>`, true);
+  showDialog('把对话，接进你的创意空间', 'ChatGPT 与 Codex 共用资料，聊天记录留在各自的平台。', `<div class="guide"><article><span class="step">01 / PLUGIN</span><h3>安装拾念插件</h3><p>下载插件包，在 ChatGPT「插件 → 添加 → 上传插件压缩包」导入，连接 GitHub。账号内可用的云端插件可在电脑和手机调用；本机 Skill 不会自动变成手机插件。</p><a class="button outline" href="./integrations/shinian-plugin.zip" download="拾念插件.zip">下载拾念插件</a></article><article><span class="step">02 / CONNECT</span><h3>配置一次，随时接续</h3><p>先在「同步设置」保存资料仓库，再点下方「共享 / 更新仓库配置」。插件按 GitHub 账号读取云端配置，不需重复粘贴链接。没有 Web 配置时，也可以在插件中首次指定仓库和分支并要求记住。</p><blockquote>“拾念，打开我的创意库。继续讨论回声森林。”</blockquote></article><article><span class="step">03 / SAVE</span><h3>先讨论，再保存共识</h3><p>说“整理本次讨论”先看摘要，再说“保存已确认内容”。AI 保存成功后在这里点「拉取」；在这里编辑后点「上传」。本机草稿不会自动进入 GitHub。</p></article><p class="helper">普通聊天也可以通过主题右上角「接续上下文」复制 Markdown。下面的 GPT Actions 文件仅用于具备 Actions 入口的账号。</p>${installPrompt ? '<button class="button primary" id="install-app">安装到此设备</button>' : '<p class="helper">手机可通过浏览器菜单添加到主屏幕。</p>'}</div>`, true);
+  pluginConnectionControls($('.guide', dialog));
   $('#install-app', dialog)?.addEventListener('click', async () => { await installPrompt.prompt(); installPrompt = null; dialog.close(); });
   const exports = document.createElement('div');
   exports.className = 'dialog-actions';

@@ -1,6 +1,8 @@
 # 拾念 Skill：一次配置，直接说需求
 
-技能源文件位于 `.agents/skills/game-idea-vault/`。默认资料库在 `references/repository.json` 中配置为 `lcy199608/game-ideas`、分支 `main`；不含令牌。换仓库只需修改这份配置，不必每次贴链接。
+技能源文件位于 `.agents/skills/game-idea-vault/`。通用规则不再绑定任何个人仓库。优先按已认证 GitHub 账号读取仓库中的连接配置；首次可在拾念 Web 共享设置，或对插件说“配置并记住资料仓库”。参见 [插件安装与配置](plugin.md)。
+
+`references/repository.json` 是纯本地环境的可选配置，发布版本为空；不存令牌。云端插件包不包含此文件。
 
 ## 日常使用
 
@@ -38,6 +40,6 @@
 
 AI 保存成功后，拾念点「拉取」；在拾念编辑后点「上传」，再换设备或交给 AI 修改同一主题。图片由拾念添加上传，Skill 保留图片与正文排版，不自动收集聊天附件。
 
-本次只创建/安装技能文件，不读取或修改真实创意资料，不创建验收主题，不运行测试或验证器。实际写入须由用户人工验收。
+不创建验收主题，不运行测试或验证器。连接配置写入与游戏资料保存是独立行为；功能与真实资料读写由用户人工验收。
 
 官方参考：[构建技能](https://learn.chatgpt.com/docs/build-skills)、[创建插件](https://learn.chatgpt.com/docs/build-plugins)。

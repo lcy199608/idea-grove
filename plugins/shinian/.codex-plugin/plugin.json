@@ -1,0 +1,25 @@
+{
+  "name": "shinian",
+  "version": "0.2.0",
+  "description": "跨设备游戏创意整理与 GitHub 资料同步",
+  "skills": "./skills/",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "拾念",
+    "shortDescription": "接续游戏创意，整理共识，同步 GitHub",
+    "longDescription": "通过已连接的 GitHub 共用拾念资料。首次配置仓库，后续从云端找回。讨论与保存分开，保留图片和并发修改；无需常驻电脑。",
+    "developerName": "Idea Grove",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "打开我的拾念创意库，只读取。",
+      "整理本次游戏讨论，先不要保存。",
+      "配置并记住我的拾念资料仓库。"
+    ],
+    "logo": "./assets/icon.png",
+    "brandColor": "#42634B"
+  }
+}
