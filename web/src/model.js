@@ -82,6 +82,7 @@ export function parseFiles(files) {
     if (new TextEncoder().encode(content).byteLength > 300000) throw new Error(`文件超过 300000 UTF-8 字节，请拆分模块：${path}`);
     if (path === 'idea-vault.json') {
       const value = JSON.parse(content);
+      if (value.app === 'idea-vault' && Number.isInteger(value.schemaVersion) && value.schemaVersion > SCHEMA_VERSION) throw new Error(`本机资料使用 v${value.schemaVersion} 格式，当前网页仅支持到 v${SCHEMA_VERSION}。请更新应用，无需清除浏览器数据。`);
       if (![1, 2, 3].includes(value.schemaVersion) || value.app !== 'idea-vault') throw new Error('资料库版本不受支持，请更新应用。');
       version = value.schemaVersion;
     } else if (path.endsWith('/topic.json')) {
