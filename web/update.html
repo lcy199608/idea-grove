@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#203f35">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
+  <title>更新拾念 · 保留本机资料</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./src/update.js"></script>
+</head>
+<body>
+  <main class="update-page">
+    <h1>更新拾念</h1>
+    <p>旧版网页可能无法识别新增的参考资料。这里会更新应用文件，保留本机资料、编辑草稿及登录设置。</p>
+    <p>请先保存编辑内容，并关闭其它拾念网页和已安装的拾念窗口，只保留本页。无需清除浏览器数据。</p>
+    <button id="update-app" class="button primary">更新应用，保留本机资料</button>
+    <p id="update-status" class="update-status" role="status" aria-live="polite">更新完成后会返回拾念，再点击「拉取」。</p>
+    <a href="./">返回拾念</a>
+  </main>
+</body>
+</html>

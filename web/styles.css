@@ -38,6 +38,7 @@ dialog.image-viewer{width:min(1100px,calc(100vw - 20px));max-height:calc(100dvh 
 @media(max-width:540px){.visual-body-editor,.body-source{padding:12px;font-size:16px;min-height:260px}.body-toolbar-actions{gap:10px}.body-toolbar-actions .text-button{font-size:11px}.editor-image>img{max-height:55dvh}.editor-image-actions button{min-height:40px}}
 
 /* Reference library */
+.update-page{max-width:660px;margin:60px auto;padding:28px;background:var(--paper);border:1px solid var(--line);border-radius:14px}.update-status{margin:24px 0;overflow-wrap:anywhere}.update-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 32px;background:#e8efdb;color:#294e40;font-size:13px}.footer-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.persistent-error{overflow-wrap:anywhere}@media(max-width:700px){.update-page{margin:24px 16px;padding:20px}.update-banner{padding:14px 20px;flex-wrap:wrap}}
 .reference-file { display:flex; gap:16px; justify-content:space-between; align-items:start; border-bottom:1px solid var(--border, #ddd); padding:16px 0; }
 .reference-file > div { min-width:0; }
 .reference-file > div:first-child { flex:1; }

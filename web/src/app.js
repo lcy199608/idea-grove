@@ -6,6 +6,7 @@ import { renderMarkdown, removeImageReferences } from './markdown.js';
 import { createBodyEditor } from './body-editor.js';
 import { sharePluginConnection } from './plugin-connection.js';
 import { isReferencePath, referenceBytes, prepareReferenceFile, verifyReferenceHashes, safeSourceURL, REFERENCE_ROLES, PROCESSING, VERIFICATION } from './references.js';
+import { APP_VERSION, watchForUpdates } from './app-updates.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -27,6 +28,7 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="
 let config, workspace, selected = null, activeTab = 'modules', statusFilter = 'all', query = '', busy = false, token = '', sidebarOpen = false;
 let installPrompt, toastTimer, currentDraft = null, saveQueue = Promise.resolve(), modalBusy = false;
 let persistentError = '';
+let updateAvailable = false, appReady = false;
 let releaseMainImages = () => {};
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const topics = () => parseFiles(workspace.files);
@@ -80,10 +82,11 @@ function render() {
       <main class="main">
         <header class="topbar"><div class="breadcrumb"><button class="icon-button mobile-menu" data-action="menu" aria-label="打开主题导航">${icon('menu')}</button><span>创意档案</span><span class="slash">/</span><strong>${topic ? esc(topic.title) : '开始创作'}</strong></div>
           <div class="top-actions"><span class="sync-state"><span class="status-dot ${dirtyCount() ? 'dirty' : ''}"></span>${esc(statusLabel())}</span><button class="button subtle" data-action="pull" ${busy ? 'disabled' : ''}>${icon('down')}<span>拉取</span></button><button class="button primary small" data-action="push" ${busy ? 'disabled' : ''}>${icon('up')}<span>上传</span></button></div></header>
-        ${persistentError ? `<div class="persistent-error" role="alert">${esc(persistentError)} <button data-action="backup">导出当前备份</button></div>` : ''}
+        ${persistentError ? `<div class="persistent-error" role="alert">${esc(persistentError)} <button data-action="update-app">更新应用</button><button data-action="backup">导出当前备份</button></div>` : ''}
+        ${updateAvailable ? '<div class="update-banner" role="status"><span>新版拾念已就绪。完成当前编辑后更新，本机资料会保留。</span><button class="button outline" data-action="update-app">更新应用</button></div>' : ''}
         ${!navigator.onLine ? '<div class="offline-bar">当前离线，仍可编辑并保存到本机。恢复网络后再同步。</div>' : ''}
         <div class="content">${topic ? topicView(topic) : welcomeView()}</div>
-        <footer class="footer"><span>留住值得继续的想法。</span><span>${config ? `上次同步 ${workspace.syncedAt ? date(workspace.syncedAt) : '尚未同步'}` : 'LOCAL FIRST · GITHUB SYNC'}</span></footer>
+        <footer class="footer"><span>留住值得继续的想法。</span><span class="footer-actions"><span>网页 ${APP_VERSION}</span><button data-action="update-app">检查更新</button><span>${config ? `上次同步 ${workspace.syncedAt ? date(workspace.syncedAt) : '尚未同步'}` : 'LOCAL FIRST · GITHUB SYNC'}</span></span></footer>
       </main>
     </div>`;
   releaseMainImages = mountImages(app, workspace.files);
@@ -707,6 +710,11 @@ app.addEventListener('click', async event => {
       case 'pull': await sync(false); break;
       case 'push': await sync(true); break;
       case 'backup': backups(); break;
+      case 'update-app':
+        if (dialog.open || modalBusy) { toast('请先完成并保存当前编辑，再更新应用。', true); break; }
+        await saveQueue;
+        location.assign('./update.html');
+        break;
       case 'guide': guide(); break;
       case 'sample': await loadSample(); break;
     }
@@ -744,14 +752,14 @@ async function start() {
     }
     try { sessionStorage.removeItem('shinian-token'); } catch { /* Optional cleanup of legacy storage. */ }
     render();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-      .then(registration => registration.update().catch(() => {}))
-      .catch(() => toast('离线缓存未能启用，在线使用不受影响。', true));
+    appReady = true;
   } catch (error) {
-    app.innerHTML = `<div class="fatal"><h1>暂时无法打开资料</h1><p>${esc(error.message)}</p><p>请不要清除浏览器数据。可以先导出原始本地记录用于恢复。</p><button class="button outline" id="raw-recovery">导出原始记录</button></div>`;
+    app.innerHTML = `<div class="fatal"><h1>暂时无法打开资料</h1><p>${esc(error.message)}</p><p>请不要清除浏览器数据。可以先更新应用，或导出原始本地记录用于恢复。</p><p><a href="./update.html">更新应用，保留本机资料</a></p><button class="button outline" id="raw-recovery">导出原始记录</button></div>`;
     $('#raw-recovery').onclick = async () => { const raw = await get(workspaceKey(config)); download('拾念-原始恢复记录.json', JSON.stringify(raw, null, 2), 'application/json'); };
   }
 }
+// Start updating even when a newer local data format prevents the editor boot.
+watchForUpdates(() => { updateAvailable = true; if (appReady) render(); }).catch(() => {});
 // One active editor per origin avoids two local tabs overwriting IndexedDB snapshots.
 if (navigator.locks) {
   navigator.locks.request('shinian-active-editor', { ifAvailable: true }, async lock => {
