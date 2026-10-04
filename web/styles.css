@@ -36,3 +36,15 @@ dialog.image-viewer{width:min(1100px,calc(100vw - 20px));max-height:calc(100dvh 
 .editor-image-actions button{font-size:11px;padding:8px 10px;border-radius:5px;color:#607950;min-height:34px}
 .editor-image-actions button:hover{background:#e2ebd5}
 @media(max-width:540px){.visual-body-editor,.body-source{padding:12px;font-size:16px;min-height:260px}.body-toolbar-actions{gap:10px}.body-toolbar-actions .text-button{font-size:11px}.editor-image>img{max-height:55dvh}.editor-image-actions button{min-height:40px}}
+
+/* Reference library */
+.reference-file { display:flex; gap:16px; justify-content:space-between; align-items:start; border-bottom:1px solid var(--border, #ddd); padding:16px 0; }
+.reference-file > div { min-width:0; }
+.reference-file > div:first-child { flex:1; }
+.reference-file small, .reference-file code { display:block; overflow-wrap:anywhere; margin-top:6px; }
+.reference-file > div:last-child { display:flex; flex-wrap:wrap; gap:8px; }
+.reference-note, .reference-preview { white-space:pre-wrap; overflow-wrap:anywhere; }
+.reference-preview { max-height:65vh; overflow:auto; padding:18px; background:#f5f4ed; font-size:13px; }
+.reference-modules { max-height:220px; overflow:auto; border:1px solid #ddd; border-radius:10px; margin:16px 0; }
+.reference-card .card-meta { flex-wrap:wrap; gap:8px; }
+@media (max-width:700px) { .reference-file { flex-direction:column; } .tabs { overflow-x:auto; max-width:100%; } .tab { flex-shrink:0; } }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read/write a local idea-vault repository. No third-party Python packages."""
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -10,12 +11,80 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 TYPES = {"gameplay", "experience", "art", "tech", "question", "other"}
 STATUSES = {"confirmed", "exploring", "rejected"}
 ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,80}$")
 IMAGE_PATTERN = re.compile(r"ideas/[a-zA-Z0-9_-]{1,80}/images/[a-zA-Z0-9_-]{1,80}/[a-zA-Z0-9_-]{1,80}\.(jpg|png|webp)")
 MAX_IMAGE_BYTES = 1536 * 1024
+REFERENCE_PATTERN = re.compile(r'ideas/[a-zA-Z0-9_-]{1,80}/references/[a-zA-Z0-9_-]{1,80}/[a-zA-Z0-9_-]{1,80}\.[a-z0-9]{1,12}')
+
+
+def is_reference(path):
+    return bool(REFERENCE_PATTERN.fullmatch(path))
+
+
+def validate_references(topic, paths, root):
+    refs = topic.get('references', [])
+    if not isinstance(refs, list) or len(refs) > 100:
+        raise ValueError('每个主题最多100份参考资料。')
+    ids, used = set(), set()
+    for ref in refs:
+        validate_meta(ref)
+        if ref['id'] in ids:
+            raise ValueError('参考资料ID重复。')
+        ids.add(ref['id'])
+        for key in ('summary', 'source', 'notes', 'limitations'):
+            text_limit(ref.get(key, ''), 8000, key)
+        text_limit(ref.get('version', ''), 200, 'version')
+        text_limit(ref.get('sourceUrl', ''), 4000, 'sourceUrl')
+        if ref.get('sourceUrl'):
+            url = urlsplit(ref['sourceUrl'])
+            if url.scheme not in ('http', 'https') or not url.netloc or url.username or url.password:
+                raise ValueError('来源网址无效。')
+        if ref.get('sourceSha256') and not re.fullmatch('[a-f0-9]{64}', ref['sourceSha256']):
+            raise ValueError('来源校验值无效。')
+        if ref.get('processing') not in ('pending', 'partial', 'complete', 'failed') or ref.get('verification') not in ('unverified', 'extracted', 'cross_checked', 'runtime_verified'):
+            raise ValueError('资料处理状态无效。')
+        modules = {item['id'] for item in topic['modules']}
+        links = ref.get('moduleIds')
+        if not isinstance(links, list) or len(set(links)) != len(links) or any(mid not in modules for mid in links):
+            raise ValueError('资料关联模块缺失。')
+        if not isinstance(ref.get('files'), list) or len(ref['files']) > 32:
+            raise ValueError('每份资料最多32个文件。')
+        file_ids = set()
+        for file in ref['files']:
+            identifier(file['id'])
+            expected = f"ideas/{topic['id']}/references/{ref['id']}/{file['id']}.{file['path'].rsplit('.', 1)[-1]}"
+            if file['id'] in file_ids or file['path'] != expected or file['path'] not in paths or file['path'] in used:
+                raise ValueError('参考文件缺失、重复或归属错误。')
+            file_ids.add(file['id'])
+            text_limit(file['name'], 200, '文件名')
+            if not file['name'] or re.search(r'[/\\\x00-\x1f]', file['name']):
+                raise ValueError('文件名无效。')
+            text_limit(file.get('locator', ''), 1000, 'locator')
+            text_limit(file['mimeType'], 200, 'mimeType')
+            if file['role'] not in ('original', 'extracted', 'evidence') or file['encoding'] not in ('utf-8', 'binary') or type(file['size']) is not int:
+                raise ValueError('参考文件元数据无效。')
+            data = (root / file['path']).read_bytes()
+            if len(data) != file['size'] or hashlib.sha256(data).hexdigest() != file['sha256']:
+                raise ValueError('参考文件大小或SHA-256不匹配。')
+            if file['encoding'] == 'utf-8':
+                data.decode('utf-8')
+            used.add(file['path'])
+    by_id = {ref['id']: ref for ref in refs}
+    for ref in refs:
+        seen, cursor = set(), ref
+        while cursor:
+            if cursor['id'] in seen:
+                raise ValueError('参考版本关系循环。')
+            seen.add(cursor['id'])
+            parent = cursor.get('supersedes')
+            if parent and parent not in by_id:
+                raise ValueError('旧版本参考资料不存在。')
+            cursor = by_id.get(parent)
+    return used
 
 
 def is_image(path):
@@ -134,7 +203,7 @@ def load(root):
         raise ValueError("资料标记不能是符号链接。")
     if marker.exists():
         value = json.loads(marker.read_text(encoding="utf-8"))
-        if value.get("schemaVersion") not in (1, 2) or value.get("app") != "idea-vault":
+        if value.get("schemaVersion") not in (1, 2, 3) or value.get("app") != "idea-vault":
             raise ValueError("资料库版本不受支持。")
         version = value["schemaVersion"]
     ideas = root / "ideas"
@@ -144,6 +213,8 @@ def load(root):
     count = 1 if marker.exists() else 0
     image_paths = set()
     total_images = 0
+    reference_paths = set()
+    total_references = 0
     for path in ideas.rglob("*") if ideas.exists() else []:
         if path.is_symlink():
             raise ValueError("资料不能是符号链接。")
@@ -154,7 +225,12 @@ def load(root):
         count += 1
         relative = path.relative_to(root).as_posix()
         size = path.stat().st_size
-        if is_image(relative):
+        if is_reference(relative):
+            if size > 8 * 1024 * 1024:
+                raise ValueError('参考文件超过8 MiB。')
+            reference_paths.add(relative)
+            total_references += size
+        elif is_image(relative):
             if not 1 <= size <= MAX_IMAGE_BYTES:
                 raise ValueError("图片为空或超过 1.5 MB。")
             with path.open("rb") as handle:
@@ -169,11 +245,14 @@ def load(root):
             raise ValueError("文字资料文件超过 300000 字节。")
     if total_images > 40 * 1024 * 1024:
         raise ValueError("资料库图片总量超过 40 MB。")
-    if image_paths and version != 2:
+    if total_references > 64 * 1024 * 1024:
+        raise ValueError('参考文件总量超过64 MiB。')
+    if image_paths and version < 2:
         raise ValueError("含图片的资料库需要 schemaVersion 2。")
     if count > 2000:
         raise ValueError("首版最多支持 2000 个资料文件。")
     referenced = set()
+    used_references = set()
     if ideas.exists():
         for path in sorted(ideas.glob("*/topic.json")):
             topic = json.loads(path.read_text(encoding="utf-8"))
@@ -194,19 +273,24 @@ def load(root):
                         raise ValueError("图片文件大小与元数据不一致。")
                     referenced.add(item["path"])
                 topic["modules"].append(module)
+            used_references.update(validate_references(topic, reference_paths, root))
+            if topic.get('references') and version < 3:
+                raise ValueError('参考资料需要v3资料标记。')
             results.append(topic)
         for path in ideas.glob("*/modules/*.md"):
             if not (path.parent.parent / "topic.json").exists():
                 raise ValueError("发现缺少所属主题的模块。")
     if image_paths != referenced:
         raise ValueError("发现未关联到模块的图片。")
+    if used_references != reference_paths:
+        raise ValueError('发现未关联的参考文件。')
     if results and not marker.exists():
         raise ValueError("资料缺少 idea-vault.json 标记。")
     return results
 
 
 def managed(path):
-    return path == "idea-vault.json" or is_image(path) or bool(re.fullmatch(r"ideas/[a-zA-Z0-9_-]{1,80}/(?:topic\.json|modules/[a-zA-Z0-9_-]{1,80}\.md)", path))
+    return path == "idea-vault.json" or is_image(path) or is_reference(path) or bool(re.fullmatch(r"ideas/[a-zA-Z0-9_-]{1,80}/(?:topic\.json|modules/[a-zA-Z0-9_-]{1,80}\.md)", path))
 
 
 def topic_by_id(topics, tid):
@@ -273,6 +357,13 @@ def main():
                 print(f"\n来源：{module['source']}")
             for item in module.get("attachments", []):
                 print(f"\n参考图：{item['name']}\n仓库路径：{item['path']}\n说明：{item['caption']}\n本地文件：{root / item['path']}")
+        if topic.get('references'):
+            print('\n## 参考资料索引\n索引不含文件全文；精确分析前按路径读取。验证状态不代表手游方案已采用。')
+        for ref in topic.get('references', []):
+            print(f"\n### {ref['title']} [{ref['id']}]\n版本：{ref.get('version', '')}\n解析：{ref['processing']}；验证：{ref['verification']}\n{ref.get('summary', '')}\n限制：{ref.get('limitations', '')}")
+            print('已附原件' if any(item['role'] == 'original' for item in ref['files']) else '原件未归档')
+            for file in ref['files']:
+                print(f"- {file['role']} / {file['name']}：{file['path']}\n  SHA-256：{file['sha256']}\n  定位：{file.get('locator', '')}")
         return
     if args.command == "pull":
         if git(root, "status", "--porcelain").strip():
@@ -340,10 +431,15 @@ def main():
         for item in module.get("attachments", []):
             (root / item["path"]).unlink()
         path.unlink()
+        for ref in topic.get('references', []):
+            ref['moduleIds'] = [mid for mid in ref['moduleIds'] if mid != args.module]
         topic["updatedAt"] = now()
         write_topic(root, topic)
         print("模块已从本地删除，尚未推送。")
     elif args.command == "delete-topic":
+        for ref in topic.get('references', []):
+            for file in ref['files']:
+                (root / file['path']).unlink()
         for module in topic["modules"]:
             for item in module.get("attachments", []):
                 (root / item["path"]).unlink()

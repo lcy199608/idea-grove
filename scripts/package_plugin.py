@@ -16,10 +16,10 @@ text = (source / 'SKILL.md').read_text()
 text = text.replace('纯本地环境可使用 references/repository.json 的个人配置，但公共插件不携带个人默认地址。', '本插件不携带个人默认地址，不依赖本地文件或常驻电脑。')
 text = '\n'.join(line for line in text.split('\n') if not line.startswith('- 用户明确指定本地资料仓库'))
 (skill / 'SKILL.md').write_text(text)
-for name in ('connection.md', 'github.md', 'schema.md', 'chat-images.md'):
+for name in ('connection.md', 'github.md', 'schema.md', 'chat-images.md', 'reference-materials.md'):
     shutil.copyfile(source / 'references' / name, skill / 'references' / name)
 (skill / 'scripts').mkdir(exist_ok=True)
-for name in ('prepare_reference.py', 'read_blob_chunk.py'):
+for name in ('prepare_reference.py', 'read_blob_chunk.py', 'prepare_material.py'):
     shutil.copyfile(source / 'scripts' / name, skill / 'scripts' / name)
 shutil.copyfile(source / 'agents/openai.yaml', skill / 'agents/openai.yaml')
 (target / 'assets').mkdir(exist_ok=True)
@@ -27,7 +27,7 @@ shutil.copyfile(ROOT / 'web/icons/icon-192.png', target / 'assets/icon.png')
 interface = {
     'displayName': '拾念',
     'shortDescription': '接续游戏创意，整理共识，同步 GitHub',
-    'longDescription': '通过已连接的 GitHub 共用拾念资料。首次配置仓库，后续从云端找回。整理时筛选有价值参考图；可读取附件原文件的环境中，图片与正文一起保存，保留并发修改。',
+    'longDescription': '通过已连接的 GitHub 共用拾念资料。首次配置仓库，后续从云端找回。支持参考文件归档、解析结果索引与版本记录；按需读取资料接续讨论。具备原文件通道时同次保存附件与正文，明确未归档和待验证项，保留并发修改。',
     'developerName': 'Idea Grove',
     'category': 'Productivity',
     'capabilities': ['Read', 'Write'],
@@ -35,7 +35,7 @@ interface = {
     'logo': './assets/icon.png',
     'brandColor': '#42634B'
 }
-identity = {'name': 'shinian', 'version': '0.3.1', 'description': '跨设备游戏创意整理与 GitHub 资料同步'}
+identity = {'name': 'shinian', 'version': '0.4.0', 'description': '跨设备游戏创意整理与 GitHub 资料同步'}
 extension = {'apps': './.app.json', 'interface': interface}
 manifest = {'$schema': 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', **identity, 'extensions': {'com.openai': extension}}
 (target / 'plugin.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')

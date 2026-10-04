@@ -1,6 +1,7 @@
 import { isImagePath, imageMime, validateImage, MAX_ATTACHMENTS, MAX_IMAGE_EDGE, MAX_TOTAL_IMAGE_BYTES } from './images.js';
+import { isReferencePath, validateReferenceFile, validateReferences, referenceIndex, MAX_TOTAL_REFERENCE_BYTES } from './references.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const TYPES = { gameplay: '核心玩法', experience: '玩家体验', art: '美术与世界', tech: '技术方案', question: '待解决问题', other: '自由笔记' };
 export const STATUSES = { confirmed: '已确认', exploring: '待探索', rejected: '已放弃' };
 export const id = () => crypto.randomUUID();
@@ -11,9 +12,13 @@ export const safeID = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80
 export const marker = (version = 1) => JSON.stringify({ schemaVersion: version, app: 'idea-vault' }, null, 2) + '\n';
 export function upgradeImages(files) {
   const value = files['idea-vault.json'] ? JSON.parse(files['idea-vault.json']) : { app: 'idea-vault' };
+  files['idea-vault.json'] = JSON.stringify({ ...value, schemaVersion: Math.max(value.schemaVersion || 1, 2) }, null, 2) + '\n';
+}
+export function upgradeReferences(files) {
+  const value = files['idea-vault.json'] ? JSON.parse(files['idea-vault.json']) : { app: 'idea-vault' };
   files['idea-vault.json'] = JSON.stringify({ ...value, schemaVersion: SCHEMA_VERSION }, null, 2) + '\n';
 }
-export const managed = path => path === 'idea-vault.json' || /^ideas\/[a-zA-Z0-9_-]{1,80}\/topic\.json$/.test(path) || /^ideas\/[a-zA-Z0-9_-]{1,80}\/modules\/[a-zA-Z0-9_-]{1,80}\.md$/.test(path) || isImagePath(path);
+export const managed = path => path === 'idea-vault.json' || /^ideas\/[a-zA-Z0-9_-]{1,80}\/topic\.json$/.test(path) || /^ideas\/[a-zA-Z0-9_-]{1,80}\/modules\/[a-zA-Z0-9_-]{1,80}\.md$/.test(path) || isImagePath(path) || isReferencePath(path);
 
 export function newTopic(title, description = '', tags = []) {
   const time = now();
@@ -55,10 +60,17 @@ export function parseFiles(files) {
   if (!files || typeof files !== 'object' || Array.isArray(files)) throw new Error('资料必须是文件映射。');
   if (Object.keys(files).length > 2000) throw new Error('首版最多支持 2000 个资料文件。');
   const topics = [];
-  let imageBytes = 0, version = 1;
+  let imageBytes = 0, referenceBytes = 0, version = 1;
   const imageSizes = new Map(), referenced = new Set();
+  const referenceSizes = new Map(), referencedFiles = new Set();
   for (const [path, content] of Object.entries(files)) {
     if (!managed(path)) throw new Error(`不支持的资料路径：${path}`);
+    if (isReferencePath(path)) {
+      const size = validateReferenceFile(path, content);
+      referenceSizes.set(path, size); referenceBytes += size;
+      if (referenceBytes > MAX_TOTAL_REFERENCE_BYTES) throw new Error('参考文件总量超过 64 MB，请拆分资料库。');
+      continue;
+    }
     if (isImagePath(path)) {
       const size = validateImage(path, content);
       imageSizes.set(path, size);
@@ -70,7 +82,7 @@ export function parseFiles(files) {
     if (new TextEncoder().encode(content).byteLength > 300000) throw new Error(`文件超过 300000 UTF-8 字节，请拆分模块：${path}`);
     if (path === 'idea-vault.json') {
       const value = JSON.parse(content);
-      if (![1, 2].includes(value.schemaVersion) || value.app !== 'idea-vault') throw new Error('资料库版本不受支持，请更新应用。');
+      if (![1, 2, 3].includes(value.schemaVersion) || value.app !== 'idea-vault') throw new Error('资料库版本不受支持，请更新应用。');
       version = value.schemaVersion;
     } else if (path.endsWith('/topic.json')) {
       const topic = JSON.parse(content);
@@ -82,7 +94,7 @@ export function parseFiles(files) {
     }
   }
   for (const [path, content] of Object.entries(files)) {
-    if (!path.endsWith('.md')) continue;
+    if (!/^ideas\/[^/]+\/modules\/[^/]+\.md$/.test(path)) continue;
     const topic = topics.find(item => item.id === path.split('/')[1]);
     if (!topic) throw new Error(`模块缺少所属主题：${path}`);
     const module = decodeModule(content);
@@ -100,7 +112,10 @@ export function parseFiles(files) {
     topic.modules.push(module);
   }
   if (imageSizes.size !== referenced.size) throw new Error('发现未关联到模块的图片，请同时保存图片与所属模块。');
-  if (imageSizes.size && version !== 2) throw new Error('含图片的资料库需要 schemaVersion 2，请升级资料标记。');
+  if (imageSizes.size && version < 2) throw new Error('含图片的资料库需要 schemaVersion 2 或以上，请升级资料标记。');
+  for (const topic of topics) validateReferences(topic, referenceSizes, referencedFiles);
+  if (referenceSizes.size !== referencedFiles.size) throw new Error('存在未关联到参考资料的文件，请同时保存索引与文件。');
+  if ((referenceSizes.size || topics.some(topic => topic.references?.length)) && version < 3) throw new Error('参考资料需要 schemaVersion 3，请先更新应用与插件。');
   if (topics.length && !files['idea-vault.json']) throw new Error('缺少 idea-vault.json 资料库标记。');
   topics.forEach(topic => topic.modules.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   return topics.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -129,6 +144,7 @@ export function resolveMerge(result, choices) {
     Object.assign(files, conflict[choices[conflict.key]]);
   }
   if (Object.keys(files).some(isImagePath)) upgradeImages(files);
+  if (Object.keys(files).some(isReferencePath) || Object.entries(files).some(([path, text]) => path.endsWith('/topic.json') && JSON.parse(text).references?.length)) upgradeReferences(files);
   parseFiles(files);
   return files;
 }
@@ -138,6 +154,7 @@ export function contextText(topic, includeExploring = true) {
     `# ${topic.title}`, topic.description,
     '> 这是项目的当前资料快照。已确认内容是当前约束；待探索内容尚未采用。请勿把推测写成共识。',
     ...modules.map(module => `## ${module.title} · ${STATUSES[module.status]}\n类型：${TYPES[module.type]}\n\n${module.body}${module.reason ? `\n\n决策理由：${module.reason}` : ''}${module.source ? `\n来源：${module.source}` : ''}${module.attachments?.length ? '\n\n参考图（下列为资料仓库路径，需另行读取或上传图片，文字上下文不包含图片像素）：\n' + module.attachments.map(item => `- ${item.name}：${item.path}${item.caption ? `\n  说明：${item.caption}` : ''}`).join('\n') : ''}`),
+    referenceIndex(topic),
     '---\n接续方式：先指出需要澄清的未决问题，再继续讨论；当我明确要求沉淀时，列出新增、修改和删除，并保留不相关内容。'
   ].filter(Boolean).join('\n\n');
 }

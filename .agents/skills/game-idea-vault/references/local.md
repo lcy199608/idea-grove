@@ -21,3 +21,5 @@ python3 /技能目录/scripts/vault.py --repo /资料仓库 push --message '沉�
 正文通过 UTF-8 文件传递，避免 shell 转义。省略 reason/source 保留原值，传空字符串清空。context 默认排除 rejected，--confirmed-only 仅输出已确认内容。聊天参考图可按 chat-images.md 准备，在资料库写入真实图片并将附件元数据与正文同次更新；vault.py 本身不提供图片插入命令。脚本保留附件元数据，删除模块/主题会同时删除关联图片。
 
 一次逻辑变更准备完成后统一 push。脚本只暂存资料路径，已有暂存内容或无关未推送提交时停止；只推明确 upstream，不 force。若 upstream 不同于配置分支，先说明，不偷偷更改远端或分支。push 成功才返回远端提交链接；失败保留本地工作。
+
+参考资料v3：vault.py会读取并核对参考文件的归属、字节数和SHA-256；context输出索引。归档文件和元数据按reference-materials.md准备，prepare_material.py只生成上传材料，不直接写仓库。删除模块解除关联，删除主题包含参考文件。

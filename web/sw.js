@@ -1,8 +1,8 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const CACHE = `${PREFIX}v9`;
+const CACHE = `${PREFIX}v10`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',
-  './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js', './src/plugin-connection.js',
+  './src/references.js', './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js', './src/plugin-connection.js',
   './integrations/chatgpt-openapi.template.json', './integrations/chatgpt-instructions.md', './integrations/shinian-plugin.zip',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];
