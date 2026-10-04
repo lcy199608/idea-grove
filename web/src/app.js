@@ -1,10 +1,11 @@
-import { TYPES, STATUSES, id, now, clone, marker, upgradeImages, newTopic, newModule, topicPath, modulePath, encodeTopic, encodeModule, parseFiles, changedPaths, mergeFiles, resolveMerge, contextText } from './model.js';
+import { TYPES, STATUSES, id, now, clone, marker, upgradeImages, upgradeReferences, newTopic, newModule, topicPath, modulePath, encodeTopic, encodeModule, parseFiles, changedPaths, mergeFiles, resolveMerge, contextText } from './model.js';
 import { get, setRecords, emptyWorkspace, workspaceKey, getCredential, saveConnection, clearCredentials } from './storage.js';
 import { GitHub } from './github.js';
 import { isImagePath, imageBlob, imageFileName, prepareImage, formatSize, base64Size, MAX_ATTACHMENTS, MAX_TOTAL_IMAGE_BYTES } from './images.js';
 import { renderMarkdown, removeImageReferences } from './markdown.js';
 import { createBodyEditor } from './body-editor.js';
 import { sharePluginConnection } from './plugin-connection.js';
+import { isReferencePath, referenceBytes, prepareReferenceFile, verifyReferenceHashes, safeSourceURL, REFERENCE_ROLES, PROCESSING, VERIFICATION } from './references.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $('#app'), dialog = $('#dialog');
@@ -53,6 +54,7 @@ function queueRecords(records) {
 async function saveWorkspace(next, message) {
   parseFiles(next.files);
   parseFiles(next.base);
+  await verifyReferenceHashes(next.files);
   if (message) next.activity = [{ id: id(), message, at: now() }, ...(next.activity || [])].slice(0, 60);
   await queueWrite(workspaceKey(config), next);
   workspace = next;
@@ -122,8 +124,93 @@ function topicView(topic) {
   const exploring = topic.modules.filter(module => module.status === 'exploring').length;
   return `<section class="topic-heading"><div><div class="eyebrow">YOUR GAME, TAKING SHAPE</div><div class="title-row"><h1>${esc(topic.title)}</h1><button class="icon-button" data-action="edit-topic" aria-label="编辑主题">${icon('edit')}</button></div><p class="topic-description">${esc(topic.description || '给这个世界写一句开场白。')}</p><div class="tags">${topic.tags.map(tag => `<span># ${esc(tag)}</span>`).join('')}<span class="topic-date">创建于 ${date(topic.createdAt)}</span></div></div><button class="button outline context-button" data-action="context">${icon('copy')} 接续上下文 ${icon('arrow')}</button></section>
     <section class="stats" aria-label="主题统计"><div><span>沉淀模块</span><strong>${String(topic.modules.length).padStart(2, '0')}<small>块拼图</small></strong></div><div><span><i class="stat-dot green"></i>已确认共识</span><strong>${String(confirmed).padStart(2, '0')}<small>继续创作的基础</small></strong></div><div><span><i class="stat-dot amber"></i>待探索想法</span><strong>${String(exploring).padStart(2, '0')}<small>留一点可能性</small></strong></div><div class="stat-quote">“好的创意，<br>值得被认真留下。” ${icon('leaf')}</div></section>
-    <div class="tabs-row"><div class="tabs" role="tablist" aria-label="主题视图">${[['modules', 'grid', '创意模块'], ['overview', 'book', '项目概览'], ['activity', 'clock', '本机动态']].map(([tab, symbol, label]) => `<button role="tab" aria-selected="${activeTab === tab}" class="tab ${activeTab === tab ? 'active' : ''}" data-action="tab" data-id="${tab}">${icon(symbol)} ${label}</button>`).join('')}</div><button class="text-button danger" data-action="delete-topic">${icon('trash')} 删除主题</button></div>
-    <section role="tabpanel">${activeTab === 'modules' ? modulesView(topic) : activeTab === 'overview' ? overviewView(topic) : activityView()}</section>`;
+    <div class="tabs-row"><div class="tabs" role="tablist" aria-label="主题视图">${[['modules', 'grid', '创意模块'], ['references', 'box', '参考资料'], ['overview', 'book', '项目概览'], ['activity', 'clock', '本机动态']].map(([tab, symbol, label]) => `<button role="tab" aria-selected="${activeTab === tab}" class="tab ${activeTab === tab ? 'active' : ''}" data-action="tab" data-id="${tab}">${icon(symbol)} ${label}</button>`).join('')}</div><button class="text-button danger" data-action="delete-topic">${icon('trash')} 删除主题</button></div>
+    <section role="tabpanel">${activeTab === 'modules' ? modulesView(topic) : activeTab === 'references' ? referencesView(topic) : activeTab === 'overview' ? overviewView(topic) : activityView()}</section>`;
+}
+function referencesView(topic) {
+  const refs = (topic.references || []).filter(ref => `${ref.title} ${ref.summary} ${ref.source} ${ref.version} ${ref.files.map(file => file.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  return `<div class="module-toolbar"><p class="muted">保存原件、解析结果与依据，换一次对话也能继续查阅。</p><div class="module-tools"><label class="search">${icon('search')}<input id="reference-search" type="search" placeholder="搜索参考资料…" value="${esc(query)}" aria-label="搜索参考资料"></label><button class="button primary" data-action="new-reference">${icon('plus')} 添加资料</button></div></div><div class="module-grid">${refs.map(ref => `<article class="module-card reference-card"><div class="card-meta"><span>${esc(PROCESSING[ref.processing])}</span><span>${esc(VERIFICATION[ref.verification])}</span></div><button class="card-title" data-action="view-reference" data-id="${esc(ref.id)}"><h2>${esc(ref.title)}</h2></button><p class="card-excerpt">${esc(ref.summary || '尚未填写资料摘要。')}</p><p class="helper">${esc(ref.version || '版本未标注')} · ${ref.files.length} 个文件 · ${ref.files.some(file => file.role === 'original') ? '已附原件' : '本页未附原件'}</p><div class="card-bottom"><span>${date(ref.updatedAt)}</span><button class="icon-button" data-action="edit-reference" data-id="${esc(ref.id)}" aria-label="编辑 ${esc(ref.title)}">${icon('edit')}</button></div></article>`).join('')}</div>${!refs.length ? '<p class="empty-filter">还没有对应资料。可添加文件，或先登记来源与待解析事项。</p>' : ''}`;
+}
+async function editReference(existing) {
+  const topic = currentTopic(), key = `reference-draft:${workspaceKey(config)}:${topic.id}:${existing?.id || 'new'}`;
+  const saved = await get(key), time = now();
+  const value = clone(saved?.reference || existing || { id: id(), title: '', summary: '', source: '', sourceUrl: '', sourceSha256: '', version: '', processing: 'pending', verification: 'unverified', limitations: '', notes: '', moduleIds: [], files: [], createdAt: time, updatedAt: time });
+  let assets = Object.fromEntries(value.files.map(file => [file.path, saved?.assets?.[file.path] ?? workspace.files[file.path]])), fileBusy = false;
+  const selectOptions = (items, current) => Object.entries(items).map(([k, v]) => `<option value="${esc(k)}" ${current === k ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  showDialog(existing ? '编辑参考资料' : '添加参考资料', '资料与设计共识分别保存。原件未上传时会明确标注；文件内容不会自动成为已确认设计。', `<form>${saved ? '<p class="notice">已恢复此设备尚未保存的资料草稿。</p>' : ''}<label class="field">资料名称<input name="title" required maxlength="200" value="${esc(value.title)}"></label><label class="field">摘要<textarea name="summary" rows="3" maxlength="8000">${esc(value.summary)}</textarea></label><div class="field-pair"><label class="field">版本<input name="version" maxlength="200" value="${esc(value.version)}"></label><label class="field">接续哪个旧版本<select name="supersedes"><option value="">独立资料</option>${(topic.references || []).filter(ref => ref.id !== value.id).map(ref => `<option value="${esc(ref.id)}" ${ref.id === value.supersedes ? 'selected' : ''}>${esc(ref.title)} · ${esc(ref.version)}</option>`).join('')}</select></label></div><label class="field">来源说明<input name="source" maxlength="8000" value="${esc(value.source)}" placeholder="文件提供者、来源位置或说明"></label><label class="field">来源网址（可选）<input name="sourceUrl" type="url" maxlength="4000" value="${esc(value.sourceUrl)}" placeholder="https://…"></label><label class="field">来源原件 SHA-256（可选）<input name="sourceSha256" pattern="[a-f0-9]{64}" value="${esc(value.sourceSha256)}"></label><div class="field-pair"><label class="field">解析状态<select name="processing">${selectOptions(PROCESSING, value.processing)}</select></label><label class="field">验证状态<select name="verification">${selectOptions(VERIFICATION, value.verification)}</select></label></div><label class="field">限制与待验证信息<textarea name="limitations" rows="3" maxlength="8000">${esc(value.limitations)}</textarea></label><label class="field">备注<textarea name="notes" rows="2" maxlength="8000">${esc(value.notes)}</textarea></label><fieldset class="reference-modules"><legend>关联创意模块（可选）</legend>${topic.modules.map(module => `<label class="check-field"><input type="checkbox" name="moduleId" value="${esc(module.id)}" ${value.moduleIds.includes(module.id) ? 'checked' : ''}>${esc(module.title)}</label>`).join('') || '<p class="helper">主题尚无模块。</p>'}</fieldset><div class="field-pair"><label class="field">添加文件的用途<select id="reference-role">${selectOptions(REFERENCE_ROLES, 'original')}</select></label><label class="field">添加文件<input id="reference-input" type="file" multiple></label></div><p class="helper">每份资料最多32个文件，单文件≤8 MB，资料库参考文件总量≤64 MB。保留原始字节，不自动解析PDF、表格或地图；AI解析结果可另作文件加入。大文件可先登记来源与校验值。</p><div id="reference-files"></div><p id="reference-state" class="helper" role="status"></p>${formActions()}</form>`, true);
+  const form = $('form', dialog);
+  const collect = () => { const data = new FormData(form); return { ...value, ...Object.fromEntries([...data].filter(([k]) => k !== 'moduleId')), moduleIds: data.getAll('moduleId'), updatedAt: now() }; };
+  const persist = async () => { await queueWrite(key, { reference: collect(), assets }); $('#reference-state', form).textContent = '资料草稿已保存到本机'; };
+  const draw = () => { $('#reference-files', form).innerHTML = value.files.map(file => `<div class="reference-file"><div><strong>${esc(file.name)}</strong><small>${esc(REFERENCE_ROLES[file.role])} · ${formatSize(file.size)}</small><label class="field">来源位置 / 定位说明<input data-locator="${esc(file.id)}" maxlength="1000" value="${esc(file.locator || '')}" placeholder="例如：第3页、表格行号、函数名"></label></div><button type="button" class="text-button danger" data-remove-file="${esc(file.id)}">移除文件</button></div>`).join(''); };
+  draw();
+  form.addEventListener('input', event => {
+    if (fileBusy || event.target.type === 'file') return;
+    if (event.target.dataset.locator) value.files.find(file => file.id === event.target.dataset.locator).locator = event.target.value;
+    persist().catch(error => { $('#reference-state', form).textContent = error.message; });
+  });
+  $('#reference-files', form).onclick = async event => {
+    const button = event.target.closest('[data-remove-file]'); if (!button || fileBusy) return;
+    const file = value.files.find(file => file.id === button.dataset.removeFile);
+    value.files = value.files.filter(item => item !== file); delete assets[file.path]; draw();
+    try { await persist(); } catch (error) { $('#reference-state', form).textContent = error.message; }
+  };
+  $('#reference-input', form).onchange = async event => {
+    const input = event.target, role = $('#reference-role', form).value;
+    fileBusy = true; modalBusy = true; form.inert = true; form.querySelector('[type="submit"]').disabled = true;
+    try {
+      for (const file of input.files) {
+        if (value.files.length >= 32) throw new Error('每份资料最多32个文件。');
+        const prepared = await prepareReferenceFile(file, topic.id, value.id, role);
+        if (value.files.some(item => item.sha256 === prepared.file.sha256 && item.role === role)) continue;
+        const duplicate = role === 'original' && (topic.references || []).find(ref => ref.id !== value.id && ref.files.some(item => item.role === 'original' && item.sha256 === prepared.file.sha256));
+        if (duplicate) throw new Error(`相同原件已收录于「${duplicate.title}」，请编辑已有资料并关联需要的模块。`);
+        const allFiles = { ...workspace.files, ...assets, [prepared.file.path]: prepared.content };
+        for (const old of existing?.files || []) if (!value.files.some(item => item.path === old.path)) delete allFiles[old.path];
+        if (Object.entries(allFiles).filter(([path]) => isReferencePath(path)).reduce((sum, [, data]) => sum + base64Size(data), 0) > 64 * 1024 * 1024) throw new Error('参考文件总量超过64 MB。');
+        value.files.push(prepared.file); assets[prepared.file.path] = prepared.content;
+        if (!$('[name="title"]', form).value.trim()) $('[name="title"]', form).value = file.name.replace(/\.[^.]+$/, '').slice(0, 200);
+        if (role === 'original' && !$('[name="sourceSha256"]', form).value) $('[name="sourceSha256"]', form).value = prepared.file.sha256;
+      }
+      draw(); await persist();
+    } catch (error) { draw(); await persist().catch(() => {}); $('#reference-state', form).textContent = error.message; }
+    finally { fileBusy = false; modalBusy = false; form.inert = false; input.value = ''; form.querySelector('[type="submit"]').disabled = false; }
+  };
+  bindForm(async () => {
+    if (fileBusy) throw new Error('请等待文件保存完成。');
+    const reference = collect(); reference.title = reference.title.trim();
+    const next = clone(workspace), meta = JSON.parse(next.files[topicPath(topic.id)]);
+    meta.references = (meta.references || []).filter(ref => ref.id !== reference.id).concat(reference); meta.updatedAt = now();
+    for (const old of existing?.files || []) if (!reference.files.some(file => file.path === old.path)) delete next.files[old.path];
+    Object.assign(next.files, assets); next.files[topicPath(topic.id)] = encodeTopic(meta); upgradeReferences(next.files);
+    await saveWorkspace(next, `保存参考资料「${reference.title}」`);
+    await queueWrite(key, null); dialog.close(); activeTab = 'references'; render(); toast('资料已保存到本机，上传后可跨设备读取。');
+  });
+}
+function viewReference(ref) {
+  if (!ref) return;
+  showDialog(ref.title, `${ref.version || '版本未标注'} · ${PROCESSING[ref.processing]} · ${VERIFICATION[ref.verification]}`, `<div class="reference-detail"><p>${esc(ref.summary)}</p><p>来源：${esc(ref.source || '未填写')}</p>${safeSourceURL(ref.sourceUrl) ? `<p><a href="${esc(safeSourceURL(ref.sourceUrl))}" target="_blank" rel="noopener noreferrer">打开来源网页</a>（链接不等于原件已归档）</p>` : ''}<p class="notice">${ref.files.some(file => file.role === 'original') ? '已附原始文件。' : '本页未附原件；如原件另有归档，请按来源说明取回。当前附件仅包含下列文件。'}</p><p class="reference-note">${esc(ref.limitations)}</p><p class="reference-note">${esc(ref.notes)}</p>${ref.files.map(file => `<div class="reference-file"><div><strong>${esc(file.name)}</strong><small>${esc(REFERENCE_ROLES[file.role])} · ${formatSize(file.size)}${file.locator ? ' · ' + esc(file.locator) : ''}</small><code>${esc(file.path)}</code><small>SHA-256：${esc(file.sha256)}</small></div><div>${file.encoding === 'utf-8' ? `<button class="button outline" data-read-file="${esc(file.id)}">查看文本</button>` : ''}<button class="button outline" data-download-file="${esc(file.id)}">下载</button></div></div>`).join('')}<div class="dialog-actions"><button class="text-button danger" id="delete-reference">删除资料</button><button class="button primary" id="edit-reference">编辑资料</button></div></div>`, true);
+  $('#edit-reference', dialog).onclick = () => editReference(ref).catch(error => toast(error.message, true));
+  $('#delete-reference', dialog).onclick = () => {
+    const topic = currentTopic();
+    confirmDelete(`删除「${ref.title}」？`, '将删除此资料及附带文件。关联的设计模块保留；新版本对本记录的关联将解除。', async () => {
+      const next = clone(workspace), meta = JSON.parse(next.files[topicPath(topic.id)]);
+      meta.references = meta.references.filter(item => item.id !== ref.id).map(item => { if (item.supersedes !== ref.id) return item; const copy = { ...item, updatedAt: now() }; delete copy.supersedes; return copy; });
+      meta.updatedAt = now(); next.files[topicPath(topic.id)] = encodeTopic(meta);
+      for (const file of ref.files) delete next.files[file.path];
+      await saveWorkspace(next, `删除参考资料「${ref.title}」`);
+      await queueWrite(`reference-draft:${workspaceKey(config)}:${topic.id}:${ref.id}`, null);
+    });
+  };
+  $('.reference-detail', dialog).onclick = event => {
+    const button = event.target.closest('[data-read-file], [data-download-file]'); if (!button) return;
+    const file = ref.files.find(item => item.id === (button.dataset.readFile || button.dataset.downloadFile));
+    const bytes = referenceBytes(workspace.files[file.path]);
+    if (button.dataset.downloadFile) { download(file.name, bytes, 'application/octet-stream'); return; }
+    const viewer = document.createElement('dialog'); viewer.className = 'wide';
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes), shown = text.slice(0, 200000);
+    viewer.innerHTML = `<div class="dialog-head"><h2>${esc(file.name)}</h2><button class="icon-button" aria-label="关闭预览">${icon('close')}</button></div><p class="helper">纯文本预览，不执行文件内容。${shown.length < text.length ? '内容较长，仅显示前200000字符；完整内容请下载。' : ''}</p><pre class="reference-preview">${esc(shown)}</pre>`;
+    document.body.append(viewer); $('button', viewer).onclick = () => viewer.close(); viewer.onclose = () => viewer.remove(); viewer.showModal();
+  };
 }
 function modulesView(topic) {
   const filters = [['all', '全部'], ['confirmed', '已确认'], ['exploring', '待探索'], ['rejected', '已放弃']];
@@ -351,13 +438,14 @@ function deleteModule(module) {
     delete next.files[modulePath(topic.id, module.id)];
     for (const path of Object.keys(next.files)) if (path.startsWith(`ideas/${topic.id}/images/${module.id}/`)) delete next.files[path];
     const meta = JSON.parse(next.files[topicPath(topic.id)]); meta.updatedAt = now();
+    if (meta.references) meta.references = meta.references.map(ref => ref.moduleIds.includes(module.id) ? { ...ref, moduleIds: ref.moduleIds.filter(mid => mid !== module.id), updatedAt: now() } : ref);
     next.files[topicPath(topic.id)] = encodeTopic(meta);
     await saveWorkspace(next, `删除模块「${module.title}」`);
   });
 }
 function deleteTopic() {
   const topic = currentTopic();
-  confirmDelete(`删除主题「${topic.title}」？`, `同时删除其中 ${topic.modules.length} 个模块及其参考图片。`, async () => {
+  confirmDelete(`删除主题「${topic.title}」？`, `同时删除其中 ${topic.modules.length} 个模块及全部参考资料和文件。`, async () => {
     const next = clone(workspace);
     for (const path of Object.keys(next.files)) if (path.startsWith(`ideas/${topic.id}/`)) delete next.files[path];
     await saveWorkspace(next, `删除主题「${topic.title}」`);
@@ -395,7 +483,7 @@ function pluginConnectionControls(parent) {
 }
 function showContext() {
   const topic = currentTopic();
-  showDialog('带着共识，继续聊', '默认包含已确认和待探索内容。参考图附名称、说明和路径；需要 AI 看图时，请从模块下载图片再上传到对话。', `<label class="check-field"><input id="include-exploring" type="checkbox" checked> 包含待探索想法</label><textarea id="context-output" class="context-output" rows="16" readonly aria-label="接续上下文"></textarea><div class="dialog-actions"><button class="button outline" id="download-context">${icon('down')} 下载 Markdown</button><button class="button primary" id="copy-context">${icon('copy')} 复制上下文</button></div>`, true);
+  showDialog('带着共识，继续聊', '包含已确认、可选的待探索内容和参考资料索引。索引不是文件全文；AI需按路径另行读取，或由你下载文件上传到对话。', `<label class="check-field"><input id="include-exploring" type="checkbox" checked> 包含待探索想法</label><textarea id="context-output" class="context-output" rows="16" readonly aria-label="接续上下文"></textarea><div class="dialog-actions"><button class="button outline" id="download-context">${icon('down')} 下载 Markdown</button><button class="button primary" id="copy-context">${icon('copy')} 复制上下文</button></div>`, true);
   const update = () => $('#context-output', dialog).value = contextText(topic, $('#include-exploring', dialog).checked);
   update(); $('#include-exploring', dialog).onchange = update;
   $('#copy-context', dialog).onclick = () => copy($('#context-output', dialog).value);
@@ -482,7 +570,7 @@ function resolveConflicts(result) {
       const meta = Object.entries(files).find(([path]) => path.endsWith('/topic.json'));
       return meta ? JSON.parse(meta[1]).title : files['idea-vault.json'] ? '资料库标记' : '已删除 / 不存在';
     };
-    showDialog('有些想法，需要你来选择', '同一主题在两端都有修改。选择保留的版本；取消不会改变本地资料。', `<form><p class="notice">冲突按整个主题处理，包括主题信息与全部模块。可先下载两端副本，再决定保留哪一版。</p>${result.conflicts.map(conflict => `<fieldset class="conflict"><legend>${esc(label(conflict.local) !== '已删除 / 不存在' ? label(conflict.local) : label(conflict.remote))}</legend><div class="conflict-options">${[['local', '保留本机'], ['remote', '采用 GitHub']].map(([side, title]) => `<label><input type="radio" name="${esc(conflict.key)}" value="${side}" required><strong>${title}</strong><small>${esc(label(conflict[side]))}</small><details><summary>查看该版本完整资料</summary><pre>${esc(Object.entries(conflict[side]).map(([path, content]) => `${path}\n${isImagePath(path) ? `[图片附件 ${formatSize(base64Size(content))}，完整数据包含在冲突副本中]` : content}`).join('\n\n') || '此版本已删除整个主题。')}</pre></details></label>`).join('')}</div></fieldset>`).join('')}<button type="button" class="button outline" id="export-conflicts">${icon('down')} 下载冲突副本</button>${formActions('应用所选版本')}</form>`, true);
+    showDialog('有些想法，需要你来选择', '同一主题在两端都有修改。选择保留的版本；取消不会改变本地资料。', `<form><p class="notice">冲突按整个主题处理，包括主题信息与全部模块。可先下载两端副本，再决定保留哪一版。</p>${result.conflicts.map(conflict => `<fieldset class="conflict"><legend>${esc(label(conflict.local) !== '已删除 / 不存在' ? label(conflict.local) : label(conflict.remote))}</legend><div class="conflict-options">${[['local', '保留本机'], ['remote', '采用 GitHub']].map(([side, title]) => `<label><input type="radio" name="${esc(conflict.key)}" value="${side}" required><strong>${title}</strong><small>${esc(label(conflict[side]))}</small><details><summary>查看该版本完整资料</summary><pre>${esc(Object.entries(conflict[side]).map(([path, content]) => `${path}\n${(isImagePath(path) || isReferencePath(path)) ? `[附件 ${formatSize(base64Size(content))}，完整数据包含在冲突副本中]` : content}`).join('\n\n') || '此版本已删除整个主题。')}</pre></details></label>`).join('')}</div></fieldset>`).join('')}<button type="button" class="button outline" id="export-conflicts">${icon('down')} 下载冲突副本</button>${formActions('应用所选版本')}</form>`, true);
     $('#export-conflicts', dialog).onclick = () => download(`拾念-冲突-${Date.now()}.json`, JSON.stringify(result.conflicts, null, 2), 'application/json');
     modalCleanup = () => { if (!settled) resolve(null); };
     bindForm(async data => {
@@ -504,6 +592,7 @@ async function sync(upload) {
     const merged = result.conflicts.length ? await resolveConflicts(result) : result.merged;
     if (!merged) return;
     if (Object.keys(merged).some(isImagePath)) upgradeImages(merged);
+    if (Object.keys(merged).some(isReferencePath) || Object.entries(merged).some(([path, text]) => path.endsWith('/topic.json') && JSON.parse(text).references?.length)) upgradeReferences(merged);
     parseFiles(merged);
     let next = clone(workspace);
     next.files = merged; next.base = remote.files; next.head = remote.head; next.syncedAt = now();
@@ -523,22 +612,23 @@ async function sync(upload) {
   } finally { busy = false; render(); }
 }
 function backups() {
-  showDialog('给灵感留一份副本', '备份包含当前空间的正式模块和参考图片，不包含令牌。未保存的编辑草稿请先保存为模块。', `<div class="backup-actions"><button class="button outline" id="export-backup">${icon('down')} 导出当前资料备份</button><label class="field">导入拾念备份<input id="import-file" type="file" accept="application/json,.json"></label><p class="helper">导入会显示主题数量供确认，再替换此空间的本地资料。上传之前不会修改 GitHub；原本机资料会自动留存一份恢复副本。</p><button class="text-button" id="recover-import">下载最近一次导入前的恢复副本</button><div class="form-error" role="alert"></div></div>`);
-  const backup = files => JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 2, exportedAt: now(), files }, null, 2);
+  showDialog('给灵感留一份副本', '备份包含当前空间的正式模块、参考图片和参考资料文件，不包含令牌。未保存的编辑草稿请先保存。', `<div class="backup-actions"><button class="button outline" id="export-backup">${icon('down')} 导出当前资料备份</button><label class="field">导入拾念备份<input id="import-file" type="file" accept="application/json,.json"></label><p class="helper">导入会显示主题数量供确认，再替换此空间的本地资料。上传之前不会修改 GitHub；原本机资料会自动留存一份恢复副本。</p><button class="text-button" id="recover-import">下载最近一次导入前的恢复副本</button><div class="form-error" role="alert"></div></div>`);
+  const backup = files => JSON.stringify({ app: 'idea-vault-backup', schemaVersion: JSON.parse(files['idea-vault.json'] || '{"schemaVersion":1}').schemaVersion, exportedAt: now(), files }, null, 2);
   $('#export-backup', dialog).onclick = () => download(`拾念-备份-${new Date().toISOString().slice(0, 10)}.json`, backup(workspace.files), 'application/json');
   $('#recover-import', dialog).onclick = async () => {
     const saved = await get(`recovery:${workspaceKey(config)}`);
     if (!saved) { toast('还没有导入前恢复副本。'); return; }
-    download('拾念-导入前恢复副本.json', JSON.stringify({ app: 'idea-vault-backup', schemaVersion: 2, exportedAt: now(), files: saved.files }, null, 2), 'application/json');
+    download('拾念-导入前恢复副本.json', JSON.stringify({ app: 'idea-vault-backup', schemaVersion: JSON.parse(saved.files['idea-vault.json'] || '{"schemaVersion":1}').schemaVersion, exportedAt: now(), files: saved.files }, null, 2), 'application/json');
   };
   $('#import-file', dialog).onchange = async event => {
     try {
       const file = event.target.files[0]; if (!file) return;
       if (file.size > 256 * 1024 * 1024) throw new Error('备份超过 256 MB，请拆分资料库。');
       const data = JSON.parse(await file.text());
-      if (data.app !== 'idea-vault-backup' || ![1, 2].includes(data.schemaVersion)) throw new Error('不是受支持的拾念备份。');
+      if (data.app !== 'idea-vault-backup' || ![1, 2, 3].includes(data.schemaVersion)) throw new Error('不是受支持的拾念备份。');
       const incoming = parseFiles(data.files);
-      showDialog('导入这份资料？', `含 ${incoming.length} 个主题、${incoming.reduce((total, topic) => total + topic.modules.length, 0)} 个模块、${Object.keys(data.files).filter(isImagePath).length} 张参考图。`, `<form><p class="notice">导入会替换当前空间的本地资料，并保留当前 GitHub 同步基线。被替换的远端内容可能在下次上传时删除，请先确认备份内容。</p><label class="check-field"><input type="checkbox" required> 确认以备份替换当前本地资料</label>${formActions('导入备份')}</form>`);
+      await verifyReferenceHashes(data.files);
+      showDialog('导入这份资料？', `含 ${incoming.length} 个主题、${incoming.reduce((total, topic) => total + topic.modules.length, 0)} 个模块、${Object.keys(data.files).filter(isImagePath).length} 张参考图、${incoming.reduce((n, topic) => n + (topic.references || []).length, 0)} 份参考资料。`, `<form><p class="notice">导入会替换当前空间的本地资料，并保留当前 GitHub 同步基线。被替换的远端内容可能在下次上传时删除，请先确认备份内容。</p><label class="check-field"><input type="checkbox" required> 确认以备份替换当前本地资料</label>${formActions('导入备份')}</form>`);
       bindForm(async () => {
         await queueWrite(`recovery:${workspaceKey(config)}`, workspace);
         const next = clone(workspace); next.files = data.files;
@@ -603,8 +693,11 @@ app.addEventListener('click', async event => {
       case 'new-topic': editTopic(); break;
       case 'edit-topic': editTopic(currentTopic()); break;
       case 'select': selected = value; activeTab = 'modules'; query = ''; statusFilter = 'all'; sidebarOpen = false; render(); break;
-      case 'tab': activeTab = value; render(); break;
+      case 'tab': activeTab = value; query = ''; render(); break;
       case 'filter': statusFilter = value; render(); break;
+      case 'new-reference': await editReference(); break;
+      case 'edit-reference': await editReference(currentTopic().references.find(ref => ref.id === value)); break;
+      case 'view-reference': viewReference(currentTopic().references.find(ref => ref.id === value)); break;
       case 'new-module': await editModule(); break;
       case 'edit-module': await editModule(currentTopic().modules.find(module => module.id === value)); break;
       case 'view-module': viewModule(currentTopic().modules.find(module => module.id === value)); break;
@@ -620,10 +713,11 @@ app.addEventListener('click', async event => {
   } catch (error) { toast(error.message, true); }
 });
 function onSearch(event) {
-  if (event.target.id !== 'module-search' || event.isComposing) return;
+  if (!['module-search', 'reference-search'].includes(event.target.id) || event.isComposing) return;
+  const searchID = event.target.id;
   const start = event.target.selectionStart;
   query = event.target.value; render();
-  const input = $('#module-search'); input.focus();
+  const input = $('#' + searchID); input.focus();
   try { input.setSelectionRange(start, start); } catch { /* type=search may not support selection */ }
 }
 app.addEventListener('input', onSearch);

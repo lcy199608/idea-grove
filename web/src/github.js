@@ -1,5 +1,6 @@
 import { managed, parseFiles, changedPaths } from './model.js';
 import { isImagePath, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES } from './images.js';
+import { isReferencePath, MAX_REFERENCE_BYTES, MAX_TOTAL_REFERENCE_BYTES, verifyReferenceHashes } from './references.js';
 
 export class GitHub {
   constructor(config, token) {
@@ -38,8 +39,9 @@ export class GitHub {
     const entries = tree.tree.filter(entry => managed(entry.path));
     if (entries.length > 2000) throw new Error('首版最多支持 2000 个资料文件，请拆分仓库。');
     if (tree.tree.some(entry => entry.path.startsWith('ideas/') && entry.type !== 'tree' && !managed(entry.path))) throw new Error('ideas/ 中有不支持的文件，请按资料格式整理后再同步。');
-    if (entries.some(entry => entry.type !== 'blob' || entry.mode !== '100644' || !Number.isInteger(entry.size) || entry.size > (isImagePath(entry.path) ? MAX_IMAGE_BYTES : 300000))) throw new Error('资料含有过大文件或不支持的文件类型。');
+    if (entries.some(entry => entry.type !== 'blob' || entry.mode !== '100644' || !Number.isInteger(entry.size) || entry.size > (isImagePath(entry.path) ? MAX_IMAGE_BYTES : isReferencePath(entry.path) ? MAX_REFERENCE_BYTES : 300000))) throw new Error('资料含有过大文件或不支持的文件类型。');
     if (entries.filter(entry => isImagePath(entry.path)).reduce((sum, entry) => sum + entry.size, 0) > MAX_TOTAL_IMAGE_BYTES) throw new Error('资料库图片总量超过 40 MB，请拆分资料库。');
+    if (entries.filter(entry => isReferencePath(entry.path)).reduce((sum, entry) => sum + entry.size, 0) > MAX_TOTAL_REFERENCE_BYTES) throw new Error('参考文件总量超过 64 MB，请拆分资料库。');
     const files = {};
     // Bound concurrency to keep large personal vaults within GitHub's request limits.
     for (let offset = 0; offset < entries.length; offset += 4) {
@@ -47,7 +49,7 @@ export class GitHub {
         const blob = await this.request(`/git/blobs/${entry.sha}`);
         if (blob.encoding !== 'base64') throw new Error('GitHub 返回了不支持的编码。');
         const content = blob.content.replace(/\s/g, '');
-        if (isImagePath(entry.path)) files[entry.path] = content;
+        if (isImagePath(entry.path) || isReferencePath(entry.path)) files[entry.path] = content;
         else {
           const bytes = Uint8Array.from(atob(content), char => char.charCodeAt(0));
           files[entry.path] = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -55,10 +57,12 @@ export class GitHub {
       }));
     }
     parseFiles(files);
+    await verifyReferenceHashes(files);
     return { files, head, tree: commit.tree.sha };
   }
   async push(snapshot, files, message) {
     parseFiles(files);
+    await verifyReferenceHashes(files);
     const paths = changedPaths(snapshot.files, files);
     if (!paths.length) return snapshot.head;
     const entries = [];
@@ -66,7 +70,7 @@ export class GitHub {
     for (const path of paths) {
       let value;
       if (files[path] === undefined) value = { sha: null };
-      else if (isImagePath(path)) {
+      else if (isImagePath(path) || isReferencePath(path)) {
         const blob = await this.request('/git/blobs', 'POST', { content: files[path], encoding: 'base64' });
         value = { sha: blob.sha };
       } else value = { content: files[path] };

@@ -1,13 +1,13 @@
 {
   "name": "shinian",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "跨设备游戏创意整理与 GitHub 资料同步",
   "skills": "./skills/",
   "apps": "./.app.json",
   "interface": {
     "displayName": "拾念",
     "shortDescription": "接续游戏创意，整理共识，同步 GitHub",
-    "longDescription": "通过已连接的 GitHub 共用拾念资料。首次配置仓库，后续从云端找回。整理时筛选有价值参考图；可读取附件原文件的环境中，图片与正文一起保存，保留并发修改。",
+    "longDescription": "通过已连接的 GitHub 共用拾念资料。首次配置仓库，后续从云端找回。支持参考文件归档、解析结果索引与版本记录；按需读取资料接续讨论。具备原文件通道时同次保存附件与正文，明确未归档和待验证项，保留并发修改。",
     "developerName": "Idea Grove",
     "category": "Productivity",
     "capabilities": [

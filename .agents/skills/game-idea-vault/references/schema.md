@@ -1,4 +1,4 @@
-# 拾念资料协议 v1 / v2
+# 拾念资料协议 v1 / v2 / v3
 
 资料仓库独立于 PWA 应用仓库。仓库须已有初始提交（创建时添加 README 即可）。所有客户端共用以下格式。
 
@@ -20,7 +20,7 @@ ideas/
 {"schemaVersion":1,"app":"idea-vault"}
 ```
 
-纯文字资料继续使用 v1。首次保存图片时，将标记的 schemaVersion 升为 2（其余字段保留）。v2 删除全部图片后也无需降级。新客户端兼容 v1/v2；旧客户端拒绝 v2，所有设备和 AI 助手须升级后再读写图片资料。
+纯文字资料继续使用 v1。参考资料使用 v3，格式与归档规则见 [reference-materials.md](reference-materials.md)；topic.json 的 references 与 references/ 下的真实文件必须一起提交。首次保存图片时，将标记的 schemaVersion 升为 2（其余字段保留）。v2 删除全部图片后也无需降级。新客户端兼容 v1/v2；旧客户端拒绝 v2，所有设备和 AI 助手须升级后再读写图片资料。
 
 主题和模块 ID 为稳定 UUID 或 `[a-zA-Z0-9_-]{1,80}`，不包含中文、斜杠或点。改标题不改 ID。日期为可解析的 ISO 8601 字符串。
 
@@ -84,7 +84,7 @@ status：`confirmed`（用户明确采用）、`exploring`（未决）、`reject
 - 一次逻辑变更应将主题与模块放在同一次 Git 提交中，避免可见的半成品状态。
 - 删除模块：删除对应 .md 及其全部图片，更新主题日期。删除主题：删除 topic.json、全部模块和全部图片。
 - Git 历史中仍会保留旧内容；应用删除不等于清除历史。
-- 除上述文字与图片路径外，不写入 ideas/ 下的其他格式；仓库的 README、技能文件等放在该目录之外。
+- 除上述文字、图片以及 v3 参考文件路径外，不写入 ideas/ 下的其他格式；仓库的 README、技能文件等放在该目录之外。
 - `idea-vault.json` 标记保留，即使已删除最后一个主题。
 
 ## API 客户端
@@ -95,4 +95,8 @@ status：`confirmed`（用户明确采用）、`exploring`（未决）、`reject
 
 PWA 将整份主题（元信息和模块）视为冲突边界，使用基线、本机、GitHub 三方比较。两端同改一个主题时人工选择整个主题版本；不同主题可自动合并。删除主题与另一端修改其模块也必须作为冲突处理。
 
-接续上下文默认包括 confirmed 和 exploring，排除 rejected。备份格式为 `{"app":"idea-vault-backup","schemaVersion":2,"exportedAt":"ISO 日期","files":{"相对路径":"文件内容"}}`。文字路径的值是 UTF-8 文本，图片路径的值是无 data URL 前缀、无换行的 Base64。新客户端也支持 v1 备份。图片包含在备份、冲突副本和导入前恢复副本中；导入文件上限 256 MiB。备份不包含登录令牌和未保存的编辑草稿。
+接续上下文默认包括 confirmed 和 exploring，排除 rejected。备份格式为 `{"app":"idea-vault-backup","schemaVersion":3,"exportedAt":"ISO 日期","files":{"相对路径":"文件内容"}}`。文字路径的值是 UTF-8 文本，图片与参考文件路径的值是无 data URL 前缀、无换行的 Base64（包括UTF-8参考文件）。新客户端也支持 v1/v2 备份。图片包含在备份、冲突副本和导入前恢复副本中；导入文件上限 256 MiB。备份不包含登录令牌和未保存的编辑草稿。
+
+## v3 的关联与兼容
+
+删除模块时解除 references[].moduleIds 中对应关联，保留参考资料；删除资料时同次删除其文件并解除其它记录的 supersedes；删除主题时包含全部参考文件。参考文件大小上限与校验见 reference-materials.md。图片仍使用原格式，添加图片不能把 v3 降为 v2。首次启用参考资料前先更新应用和插件，旧客户端遇到 v3 应拒绝读取而非丢弃附件。
