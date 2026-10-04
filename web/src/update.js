@@ -1,3 +1,5 @@
+import { latestRelease, workerRelease } from './release-info.js?recovery=0.4.2';
+
 const button = document.querySelector('#update-app');
 const status = document.querySelector('#update-status');
 
@@ -16,6 +18,18 @@ function waitForState(worker, accepts) {
   });
 }
 
+function waitForController(worker) {
+  return new Promise((resolve, reject) => {
+    const finish = error => {
+      clearTimeout(timer); navigator.serviceWorker.removeEventListener('controllerchange', check);
+      error ? reject(error) : resolve();
+    };
+    const check = () => { if (navigator.serviceWorker.controller?.scriptURL === worker.scriptURL) finish(); };
+    const timer = setTimeout(() => finish(new Error('新版尚未接管当前页面，请重试。本机资料未改动。')), 15000);
+    navigator.serviceWorker.addEventListener('controllerchange', check); check();
+  });
+}
+
 button.addEventListener('click', async () => {
   button.disabled = true;
   try {
@@ -23,12 +37,16 @@ button.addEventListener('click', async () => {
     if (!('serviceWorker' in navigator) || !navigator.locks) throw new Error('请通过 HTTPS 在支持安全存储的现代浏览器中打开此页面。');
     await navigator.locks.request('shinian-active-editor', { ifAvailable: true }, async lock => {
       if (!lock) throw new Error('还有拾念编辑窗口开着。请先保存内容并关闭其它拾念窗口，再点击更新。');
-      status.textContent = '正在下载新版应用，本机资料保留中…';
-      const registration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+      status.textContent = '正在读取线上版本…';
+      const release = await latestRelease();
+      status.textContent = `正在下载网页 ${release.version}，本机资料保留中…`;
+      const registration = await navigator.serviceWorker.register(`./sw.js?release=${release.version}`, { updateViaCache: 'none' });
       await registration.update();
       if (registration.installing) await waitForState(registration.installing, ['installed', 'activated']);
       const waiting = registration.waiting;
       if (waiting) {
+        const candidate = await workerRelease(waiting);
+        if (candidate?.version !== release.version || candidate?.cacheVersion !== release.cacheVersion) throw new Error(`尚未取得网页 ${release.version} 的完整更新，请稍后重试；不会把旧缓存当作更新成功。`);
         status.textContent = '新版已下载，正在启用…';
         const activated = waitForState(waiting, ['activated']);
         waiting.postMessage({ type: 'ACTIVATE_UPDATE' });
@@ -37,7 +55,10 @@ button.addEventListener('click', async () => {
         await waitForState(registration.active, ['activated']);
       }
       if (!registration.active || registration.active.state !== 'activated') throw new Error('新版尚未就绪，请稍后重试。');
-      status.textContent = '应用已更新，本机资料已保留。正在返回拾念…';
+      await waitForController(registration.active);
+      const current = await workerRelease(navigator.serviceWorker.controller);
+      if (current?.version !== release.version || current?.cacheVersion !== release.cacheVersion) throw new Error(`当前仍不是网页 ${release.version}，请重试。资料和登录设置均未删除。`);
+      status.textContent = `网页 ${release.version} 已接管，本机资料已保留。正在返回拾念…`;
       // A navigation outside the old cache key also avoids an old cached index.
       location.replace('./?updated=' + Date.now());
     });

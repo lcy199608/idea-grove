@@ -1,22 +1,42 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const CACHE = `${PREFIX}v12`;
+const RELEASE = '0.4.2';
+const CACHE_VERSION = 'v13';
+const CACHE = `${PREFIX}${CACHE_VERSION}`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',
-  './src/app-updates.js', './src/references.js', './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js', './src/plugin-connection.js',
+  './src/release-info.js', './src/app-updates.js', './src/references.js', './src/app.js', './src/model.js', './src/storage.js', './src/github.js', './src/images.js', './src/markdown.js', './src/body-editor.js', './src/plugin-connection.js',
   './integrations/chatgpt-openapi.template.json', './integrations/chatgpt-instructions.md', './integrations/shinian-plugin.zip',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];
 const ALLOWED = new Set(ASSETS.map(path => new URL(path, self.registration.scope).href));
-// update.html and src/update.js deliberately stay network-only, so a recovery
+// release.json, update.html and src/update.js deliberately stay network-only, so a recovery
 // entry can bypass an old app cache without touching IndexedDB or credentials.
 self.addEventListener('install', event => {
   // A new cache version must not be populated from still-fresh HTTP cache entries
   // left by the previous release (Pages serves assets with a cache lifetime).
-  const requests = ASSETS.map(path => new Request(new URL(path, self.registration.scope), { cache: 'reload' }));
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(requests)));
+  event.waitUntil(caches.open(CACHE).then(async cache => {
+    const stamp = Date.now();
+    // Bust both HTTP and CDN cache keys, then store under the canonical paths
+    // requested by the module graph. Never delete the working version first.
+    for (let offset = 0; offset < ASSETS.length; offset += 4) {
+      await Promise.all(ASSETS.slice(offset, offset + 4).map(async path => {
+        const canonical = new URL(path, self.registration.scope);
+        const fresh = new URL(canonical);
+        fresh.searchParams.set('release', RELEASE);
+        fresh.searchParams.set('install', stamp);
+        const response = await fetch(fresh, { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error(`Cannot cache ${canonical.pathname}`);
+        await cache.put(canonical, response);
+      }));
+    }
+  }));
   // Wait for every old client to close before activating a different app version.
 });
 self.addEventListener('message', event => {
+  if (event.data?.type === 'GET_RELEASE') {
+    event.ports[0]?.postMessage({ type: 'SHINIAN_RELEASE', version: RELEASE, cacheVersion: CACHE_VERSION });
+    return;
+  }
   // Only the explicit recovery page activates a waiting version. Its editor
   // lock prevents switching modules underneath an open editor.
   if (event.data?.type !== 'ACTIVATE_UPDATE' || !event.source?.url) return;
