@@ -86,7 +86,7 @@ export function referenceIndex(topic) {
   if (!topic.references?.length) return '';
   return '## 参考资料索引\n\n以下为资料与证据，不是已采用的设计。本文只包含索引；回答精确数值前请读取对应文件，不得从摘要补全缺失数据。\n\n' + topic.references.map(ref => [
     `### ${ref.title} [${ref.id}]`,
-    `版本：${ref.version || '未标注'}；${PROCESSING[ref.processing]}；${VERIFICATION[ref.verification]}；${ref.files.some(file => file.role === 'original') ? '已附原件' : '原件未归档（来源链接或本地路径不等于文件已保存）'}`,
+    `版本：${ref.version || '未标注'}；${PROCESSING[ref.processing]}；${VERIFICATION[ref.verification]}；${ref.files.some(file => file.role === 'original') ? '已附原件' : '本页未附原件（外部归档状态见来源说明；链接或本地路径本身不等于文件已保存）'}`,
     ref.summary, ref.source && `来源：${ref.source}`, ref.sourceUrl && `来源网址：${ref.sourceUrl}`,
     ref.sourceSha256 && `来源 SHA-256：${ref.sourceSha256}`,
     ref.supersedes && `接续旧版本：${ref.supersedes}`,
