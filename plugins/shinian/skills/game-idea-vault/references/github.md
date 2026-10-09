@@ -14,6 +14,8 @@
 
 仅在用户已明确要求保存或删除且范围明确时执行；普通讨论/整理预览不创建 tree、commit 或分支。
 
+准备提交时按 [完整决策与接续协议](decision-recording.md) 逐项复核覆盖范围：采用与修正均已展开为独立规则，失效的待确认和接续入口已同步更新，原图事实与AI方案状态清楚。不能仅追加摘要而留下冲突旧文。
+
 1. 重新读取最新 HEAD 和相关文件，保留讨论基线。如果同一内容已在远端变化，比较基线、拟写版本和远端：不相关变化保留，真实冲突由用户决定。采用最新 HEAD 作为唯一父提交。
 2. 有聊天参考图时，先按 chat-images.md 准备并上传真实图片 blobs；必须图片失败则停止，不能只提交其正文引用。按 schema.md 准备全部文件变化。保留 ID、createdAt、未知字段和图片；更新模块及所属主题 updatedAt。纯文字新库创建 v1 标记，已有 v2/v3 不降级。不修改 README、应用源码、工作流或其他路径。
 3. `create_tree(repository_full_name, base_tree_sha=<最新 commit.tree.sha>, tree_elements=[...])`。新增/更新文字用 `{path, mode:"100644", type:"blob", content:"完整 UTF-8 正文"}`；删除已有文件用 `{path, mode:"100644", type:"blob", sha:null}` 且不传 content。新图片及参考二进制文件 tree 条目使用 create_blob 返回的 SHA；未改图片通过 base_tree 保留，不能把二进制图片当文字写入。

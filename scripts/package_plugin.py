@@ -12,11 +12,11 @@ skill = target / 'skills/game-idea-vault'
 skill.mkdir(parents=True, exist_ok=True)
 (skill / 'references').mkdir(exist_ok=True)
 (skill / 'agents').mkdir(exist_ok=True)
-text = (source / 'SKILL.md').read_text()
+text = (source / 'SKILL.md').read_text(encoding='utf-8')
 text = text.replace('纯本地环境可使用 references/repository.json 的个人配置，但公共插件不携带个人默认地址。', '本插件不携带个人默认地址，不依赖本地文件或常驻电脑。')
 text = '\n'.join(line for line in text.split('\n') if not line.startswith('- 用户明确指定本地资料仓库'))
-(skill / 'SKILL.md').write_text(text)
-for name in ('connection.md', 'github.md', 'schema.md', 'chat-images.md', 'reference-materials.md'):
+(skill / 'SKILL.md').write_text(text, encoding='utf-8')
+for name in ('connection.md', 'github.md', 'schema.md', 'chat-images.md', 'reference-materials.md', 'decision-recording.md'):
     shutil.copyfile(source / 'references' / name, skill / 'references' / name)
 (skill / 'scripts').mkdir(exist_ok=True)
 for name in ('prepare_reference.py', 'read_blob_chunk.py', 'prepare_material.py'):
@@ -35,14 +35,14 @@ interface = {
     'logo': './assets/icon.png',
     'brandColor': '#42634B'
 }
-identity = {'name': 'shinian', 'version': '0.4.0', 'description': '跨设备游戏创意整理与 GitHub 资料同步'}
+identity = {'name': 'shinian', 'version': '0.4.1', 'description': '跨设备游戏创意整理、完整决策接续与 GitHub 资料同步'}
 extension = {'apps': './.app.json', 'interface': interface}
 manifest = {'$schema': 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', **identity, 'extensions': {'com.openai': extension}}
-(target / 'plugin.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+(target / 'plugin.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 (target / '.codex-plugin').mkdir(exist_ok=True)
-(target / '.codex-plugin/plugin.json').write_text(json.dumps({**identity, 'skills': './skills/', **extension}, ensure_ascii=False, indent=2) + '\n')
+(target / '.codex-plugin/plugin.json').write_text(json.dumps({**identity, 'skills': './skills/', **extension}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 # Existing official GitHub app mapping, from the installed GitHub plugin.
-(target / '.app.json').write_text(json.dumps({'apps': {'github': {'id': 'connector_76869538009648d5b282a4bb21c3d157', 'required': True}}}, indent=2) + '\n')
+(target / '.app.json').write_text(json.dumps({'apps': {'github': {'id': 'connector_76869538009648d5b282a4bb21c3d157', 'required': True}}}, indent=2) + '\n', encoding='utf-8')
 output = ROOT / 'web/integrations/shinian-plugin.zip'
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(target.rglob('*')):

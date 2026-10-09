@@ -1,6 +1,6 @@
 const PREFIX = `shinian:${new URL(self.registration.scope).pathname}:`;
-const RELEASE = '0.4.2';
-const CACHE_VERSION = 'v13';
+const RELEASE = '0.4.3';
+const CACHE_VERSION = 'v14';
 const CACHE = `${PREFIX}${CACHE_VERSION}`;
 const ASSETS = [
   './', './index.html', './styles.css', './fonts.css', './manifest.webmanifest',

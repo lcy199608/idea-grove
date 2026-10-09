@@ -153,9 +153,9 @@ export function contextText(topic, includeExploring = true) {
   const modules = topic.modules.filter(module => module.status === 'confirmed' || (includeExploring && module.status === 'exploring'));
   return [
     `# ${topic.title}`, topic.description,
-    '> 这是项目的当前资料快照。已确认内容是当前约束；待探索内容尚未采用。请勿把推测写成共识。',
+    '> 这是项目的当前资料快照。已确认内容是当前约束；待探索内容可能是未定提议，也可能是用户授权范围内的AI工作方案，请读取正文中的状态与授权说明，不将其冒充用户逐项确认，也不把所有待探索项都变成必须提问的问题。',
     ...modules.map(module => `## ${module.title} · ${STATUSES[module.status]}\n类型：${TYPES[module.type]}\n\n${module.body}${module.reason ? `\n\n决策理由：${module.reason}` : ''}${module.source ? `\n来源：${module.source}` : ''}${module.attachments?.length ? '\n\n参考图（下列为资料仓库路径，需另行读取或上传图片，文字上下文不包含图片像素）：\n' + module.attachments.map(item => `- ${item.name}：${item.path}${item.caption ? `\n  说明：${item.caption}` : ''}`).join('\n') : ''}`),
     referenceIndex(topic),
-    '---\n接续方式：先指出需要澄清的未决问题，再继续讨论；当我明确要求沉淀时，列出新增、修改和删除，并保留不相关内容。'
+    '---\n接续方式：先读取最新共识、接续记录及相关参考明细，区分已确认决定、研究缺口、AI方案与人工观察事项；消化已有依据后，只提出确需人工取舍的关键问题。遵循主题中已明确的自主适配与保存范围；没有保存授权时不写入。保存时将每项采用与修正展开为脱离聊天也能理解的具体规则，写清条件、结果、例外、理由和未定边界，不用“参考某作品”或“前文已说清”代替正文；同步更新旧待办与接续摘要，保留不相关内容。'
   ].filter(Boolean).join('\n\n');
 }
